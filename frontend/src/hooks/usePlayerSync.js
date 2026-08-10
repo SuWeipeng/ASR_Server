@@ -23,6 +23,7 @@ export const usePlayerSync = (mediaRef) => {
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
   const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
+  const playbackRate = useSelector((state) => state.player.playbackRate);
   const currentTimeRef = useRef(0);
 
   /**
@@ -123,6 +124,17 @@ export const usePlayerSync = (mediaRef) => {
       mediaElement.removeEventListener('ended', handleEnded);
     };
   }, [mediaRef, handleTimeUpdate, handleLoadedMetadata, handleEnded]);
+
+  /**
+   * Sync playback rate to media element when changed via Redux
+   * (e.g. keyboard shortcuts 1/2/3/4).
+   */
+  useEffect(() => {
+    const mediaElement = mediaRef.current;
+    if (mediaElement && mediaElement.playbackRate !== playbackRate) {
+      mediaElement.playbackRate = playbackRate;
+    }
+  }, [mediaRef, playbackRate]);
 
   return {
     updateCurrentSubtitle,

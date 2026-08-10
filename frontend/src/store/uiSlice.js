@@ -53,14 +53,22 @@ const initialState = {
   theme: 'dark',          // 'dark' or 'light'
   mode: 'shadowing',      // 'free', 'intensive', 'shadowing'
   showSettings: false,
-  showShortcutsHelp: false,
   showWordTooltip: false,
   selectedWord: null,
+  selectedMicDeviceId: getInitialMicDeviceId(),
   systemStatus: null,
   vadConfig: null,
   vadConfigLoading: false,
   vadConfigError: null,
 };
+
+function getInitialMicDeviceId() {
+  try {
+    return localStorage.getItem('selectedMicDeviceId') || null;
+  } catch {
+    return null;
+  }
+}
 
 const uiSlice = createSlice({
   name: 'ui',
@@ -87,9 +95,6 @@ const uiSlice = createSlice({
     toggleSettings: (state) => {
       state.showSettings = !state.showSettings;
     },
-    toggleShortcutsHelp: (state) => {
-      state.showShortcutsHelp = !state.showShortcutsHelp;
-    },
     showWordTooltip: (state, action) => {
       state.showWordTooltip = true;
       state.selectedWord = action.payload;
@@ -97,6 +102,9 @@ const uiSlice = createSlice({
     hideWordTooltip: (state) => {
       state.showWordTooltip = false;
       state.selectedWord = null;
+    },
+    setMicDeviceId: (state, action) => {
+      state.selectedMicDeviceId = action.payload || null;
     },
   },
   extraReducers: (builder) => {
@@ -142,9 +150,9 @@ export const {
   toggleTheme,
   setMode,
   toggleSettings,
-  toggleShortcutsHelp,
   showWordTooltip,
   hideWordTooltip,
+  setMicDeviceId,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Header } from './components/layout/Header';
 import { VideoPlayer } from './components/player/VideoPlayer';
@@ -7,15 +7,28 @@ import { PracticeCard } from './components/practice/PracticeCard';
 import { ErrorMessage } from './components/common/ErrorMessage';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { uploadFile } from './store/mediaSlice';
-import { generateSubtitles, loadCachedSubtitles } from './store/subtitleSlice';
+import { generateSubtitles, loadCachedSubtitles, setCurrentSubtitleIndex } from './store/subtitleSlice';
 import { getSystemStatus } from './store/uiSlice';
 import { setError as setUIError } from './store/uiSlice';
 import { store } from './store';
 import { transcriptionService } from './services/transcriptionService';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 function App() {
   const dispatch = useDispatch();
   const videoRef = useRef(null);
+
+  const handleSeekToSubtitle = useCallback((index) => {
+    const state = store.getState();
+    const subtitles = state.subtitle.subtitles;
+    const target = subtitles[index];
+    if (target && videoRef.current) {
+      videoRef.current.currentTime = target.start;
+      dispatch(setCurrentSubtitleIndex(index));
+    }
+  }, [dispatch]);
+
+  useKeyboardShortcuts(videoRef, handleSeekToSubtitle);
 
   // Selectors
   const fileId = useSelector((state) => state.media.fileId);

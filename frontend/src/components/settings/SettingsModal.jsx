@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { X, RotateCcw } from 'lucide-react';
-import { getVADConfig, updateVADConfig, toggleSettings } from '../../store/uiSlice';
+import { X, RotateCcw, Mic } from 'lucide-react';
+import { getVADConfig, updateVADConfig, toggleSettings, setMicDeviceId } from '../../store/uiSlice';
+import { store } from '../../store';
 
 export const SettingsModal = () => {
   const dispatch = useDispatch();
@@ -11,6 +12,11 @@ export const SettingsModal = () => {
   const vadConfigError = useSelector((state) => state.ui.vadConfigError);
   const fileId = useSelector((state) => state.media.fileId);
   const isProcessing = useSelector((state) => state.media.isProcessing);
+  const selectedMicDeviceId = useSelector((state) => state.ui.selectedMicDeviceId);
+
+  const [audioInputs, setAudioInputs] = useState([]);
+  const [micPermissionState, setMicPermissionState] = useState('unknown'); // 'unknown' | 'granted' | 'denied'
+  const [micPermissionError, setMicPermissionError] = useState(null);
 
   // 本地表单状态 - 只保留 example 中使用的 3 个参数
   const [formData, setFormData] = useState({
@@ -36,6 +42,50 @@ export const SettingsModal = () => {
       dispatch(getVADConfig());
     }
   }, [showSettings, vadConfig, dispatch]);
+
+  // 枚举录音设备 + 监听热插拔
+  const loadAudioInputs = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      setAudioInputs(inputs);
+
+      const hasLabels = inputs.some((d) => d.label);
+      if (hasLabels) setMicPermissionState('granted');
+
+      // 如果之前持久化的设备已不存在，回退到系统默认
+      const persistedId = store.getState().ui.selectedMicDeviceId;
+      if (persistedId && !inputs.some((d) => d.deviceId === persistedId)) {
+        dispatch(setMicDeviceId(null));
+      }
+    } catch (e) {
+      console.error('Failed to enumerate devices:', e);
+    }
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    loadAudioInputs();
+    navigator.mediaDevices?.addEventListener?.('devicechange', loadAudioInputs);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', loadAudioInputs);
+    };
+  }, [showSettings, loadAudioInputs]);
+
+  // 请求一次麦克风权限以获取设备真实名称
+  const requestMicPermission = useCallback(async () => {
+    setMicPermissionError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setMicPermissionState('granted');
+      await loadAudioInputs();
+    } catch (e) {
+      setMicPermissionState('denied');
+      setMicPermissionError(e?.message || '无法获取麦克风权限');
+    }
+  }, [loadAudioInputs]);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -84,7 +134,7 @@ export const SettingsModal = () => {
       <div className="bg-bg-secondary rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-bg-card">
-          <h2 className="text-xl font-semibold text-text-primary">VAD 参数设置</h2>
+          <h2 className="text-xl font-semibold text-text-primary">设置</h2>
           <button
             onClick={() => dispatch(toggleSettings())}
             className="p-1 rounded hover:bg-bg-card transition-colors"
@@ -95,6 +145,55 @@ export const SettingsModal = () => {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* 录音设备 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-text-secondary flex items-center gap-2">
+                <Mic size={14} />
+                录音设备
+              </label>
+              {micPermissionState !== 'granted' && (
+                <button
+                  type="button"
+                  onClick={requestMicPermission}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {micPermissionState === 'denied' ? '重试授权' : '允许访问麦克风'}
+                </button>
+              )}
+            </div>
+            <select
+              value={selectedMicDeviceId || ''}
+              onChange={(e) => dispatch(setMicDeviceId(e.target.value || null))}
+              className="input w-full"
+            >
+              <option value="">系统默认</option>
+              {audioInputs.map((device, i) => (
+                <option key={device.deviceId || `input-${i}`} value={device.deviceId}>
+                  {device.label || `麦克风 ${i + 1}`}
+                </option>
+              ))}
+            </select>
+            {micPermissionState !== 'granted' && audioInputs.length > 0 && (
+              <div className="text-xs text-text-tertiary">
+                设备名称仅在授予麦克风权限后可见
+              </div>
+            )}
+            {audioInputs.length === 0 && (
+              <div className="text-xs text-text-tertiary">
+                未检测到录音设备
+              </div>
+            )}
+            {micPermissionError && (
+              <div className="text-xs text-error">{micPermissionError}</div>
+            )}
+          </div>
+
+          {/* 分隔 */}
+          <div className="border-t border-bg-card" />
+
+          <div className="text-sm font-semibold text-text-primary">VAD 参数</div>
+
           {vadConfigLoading && (
             <div className="flex items-center justify-center py-8">
               <div className="spinner w-6 h-6 border-2 border-primary border-t-transparent" />

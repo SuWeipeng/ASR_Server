@@ -52,9 +52,10 @@ class EvaluationService:
 
             try:
                 # Load and prepare audio
-                audio_data, sr = load_audio(temp_audio_path)
-                if audio_data is None:
+                loaded = load_audio(temp_audio_path)
+                if loaded is None:
                     raise ValueError("Failed to load audio")
+                audio_data, sr = loaded
 
                 # Prepare for ASR (16kHz, mono, normalized)
                 prepared_audio = prepare_audio_for_asr(audio_data, sr)

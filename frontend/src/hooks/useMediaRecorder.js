@@ -2,22 +2,28 @@ import { useState, useRef, useCallback } from 'react';
 
 /**
  * Custom hook for media recording functionality
+ * @param {string|null} deviceId - Optional audio input deviceId to record from
  * @returns {Object} Recording state and controls
  */
-export const useMediaRecorder = () => {
+export const useMediaRecorder = (deviceId = null) => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const deviceIdRef = useRef(deviceId);
+  deviceIdRef.current = deviceId;
 
   /**
    * Start recording
    */
   const startRecording = useCallback(async () => {
     try {
+      const audioConstraints = deviceIdRef.current
+        ? { deviceId: { exact: deviceIdRef.current } }
+        : true;
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: audioConstraints,
       });
 
       const mediaRecorder = new MediaRecorder(stream);
@@ -31,7 +37,8 @@ export const useMediaRecorder = () => {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/wav' });
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: mimeType });
         setAudioBlob(blob);
 
         // Create URL for playback

@@ -1,6 +1,8 @@
 """
 Audio processing utilities
 """
+import os
+import tempfile
 import numpy as np
 import soundfile as sf
 from typing import Tuple, Optional
@@ -9,7 +11,13 @@ from app.utils.logger import logger
 
 def load_audio(file_path: str) -> Optional[Tuple[np.ndarray, int]]:
     """
-    Load audio file using soundfile
+    Load audio file using soundfile.
+
+    Falls back to ffmpeg-based conversion when soundfile cannot decode the
+    file directly. This is required for browser MediaRecorder output, which
+    is typically WebM/Opus or Ogg/Opus regardless of the client-declared
+    MIME type (the frontend may label it as ``audio/wav`` even though the
+    container is not RIFF/WAVE).
 
     Args:
         file_path: Path to audio file
@@ -22,8 +30,42 @@ def load_audio(file_path: str) -> Optional[Tuple[np.ndarray, int]]:
         logger.debug(f"Loaded audio: {file_path}, shape={audio.shape}, sr={sr}")
         return audio, sr
     except Exception as e:
+        logger.warning(
+            f"soundfile could not decode {file_path} ({e}); "
+            f"attempting ffmpeg fallback"
+        )
+
+    converted_path = None
+    try:
+        from app.utils.ffmpeg import check_ffmpeg_available, convert_audio_format
+
+        if not check_ffmpeg_available():
+            logger.error(
+                f"Failed to load audio {file_path}: soundfile failed and "
+                f"ffmpeg is not available"
+            )
+            return None
+
+        fd, converted_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+
+        convert_audio_format(file_path, converted_path, "wav", 16000)
+
+        audio, sr = sf.read(converted_path)
+        logger.info(
+            f"Loaded audio via ffmpeg fallback: {file_path} -> "
+            f"{converted_path}, shape={audio.shape}, sr={sr}"
+        )
+        return audio, sr
+    except Exception as e:
         logger.error(f"Failed to load audio {file_path}: {e}")
         return None
+    finally:
+        if converted_path and os.path.exists(converted_path):
+            try:
+                os.remove(converted_path)
+            except OSError:
+                pass
 
 
 def resample_audio(

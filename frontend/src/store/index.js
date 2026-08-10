@@ -24,4 +24,26 @@ export const store = configureStore({
     }),
 });
 
+// Persist selected microphone deviceId across reloads
+let lastPersistedMicId =
+  (() => {
+    try {
+      return localStorage.getItem('selectedMicDeviceId') || null;
+    } catch {
+      return null;
+    }
+  })();
+store.subscribe(() => {
+  const micId = store.getState().ui.selectedMicDeviceId || null;
+  if (micId !== lastPersistedMicId) {
+    try {
+      if (micId) localStorage.setItem('selectedMicDeviceId', micId);
+      else localStorage.removeItem('selectedMicDeviceId');
+    } catch {
+      // ignore (e.g. storage disabled)
+    }
+    lastPersistedMicId = micId;
+  }
+});
+
 export default store;

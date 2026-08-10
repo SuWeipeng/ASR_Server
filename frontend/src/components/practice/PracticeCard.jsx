@@ -22,7 +22,7 @@ export const PracticeCard = ({ videoRef }) => {
     startRecording,
     stopRecording,
     clearRecording,
-  } = useMediaRecorder();
+  } = useMediaRecorder(useSelector((state) => state.ui.selectedMicDeviceId));
 
   const [recordingStartTime, setRecordingStartTime] = useState(null);
 
@@ -32,10 +32,40 @@ export const PracticeCard = ({ videoRef }) => {
       ? subtitles[currentSubtitleIndex]
       : null;
 
-  // Sync recording state
+  // Sync recording state (local recorder -> Redux)
   useEffect(() => {
     dispatch(setRecording(recorderRecording));
   }, [recorderRecording, dispatch]);
+
+  // Start recording
+  const handleStartRecording = async () => {
+    try {
+      setRecordingStartTime(Date.now());
+      await startRecording();
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  // Stop recording
+  const handleStopRecording = () => {
+    stopRecording();
+    setRecordingStartTime(null);
+  };
+
+  // Sync recording state (Redux -> local recorder).
+  // This handles the keyboard-driven path (L key hold-to-record) where
+  // isRecording is flipped by the keyboard hook and the actual MediaRecorder
+  // must follow.
+  const isRecordingRedux = useSelector((state) => state.practice.isRecording);
+  useEffect(() => {
+    if (isRecordingRedux && !recorderRecording) {
+      handleStartRecording();
+    } else if (!isRecordingRedux && recorderRecording) {
+      handleStopRecording();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecordingRedux]);
 
   // Handle recording
   useEffect(() => {
@@ -54,22 +84,6 @@ export const PracticeCard = ({ videoRef }) => {
       return () => URL.revokeObjectURL(url);
     }
   }, [audioBlob, dispatch, currentSentence?.text]);
-
-  // Start recording
-  const handleStartRecording = async () => {
-    try {
-      setRecordingStartTime(Date.now());
-      await startRecording();
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-    }
-  };
-
-  // Stop recording
-  const handleStopRecording = () => {
-    stopRecording();
-    setRecordingStartTime(null);
-  };
 
   // Clear recording
   const handleClearRecording = () => {

@@ -1,7 +1,8 @@
 import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Upload, Settings, HelpCircle, Moon, Sun } from 'lucide-react';
-import { toggleTheme, toggleSettings, toggleShortcutsHelp } from '../../store/uiSlice';
+import { toggleTheme, toggleSettings } from '../../store/uiSlice';
+import { SHORTCUT_DESCRIPTIONS, formatShortcut } from '../../utils/shortcuts';
 
 export const Header = () => {
   const dispatch = useDispatch();
@@ -88,13 +89,35 @@ export const Header = () => {
             <Moon size={20} className="text-text-primary" />
           )}
         </button>
-        <button
-          onClick={() => dispatch(toggleShortcutsHelp())}
-          className="p-2 rounded-lg hover:bg-bg-card transition-colors"
-          title="快捷键帮助"
-        >
-          <HelpCircle size={20} className="text-text-primary" />
-        </button>
+        <div className="relative group">
+          <button
+            className="p-2 rounded-lg hover:bg-bg-card transition-colors"
+            aria-label="快捷键帮助"
+          >
+            <HelpCircle size={20} className="text-text-primary" />
+          </button>
+          <div
+            role="tooltip"
+            className="absolute right-0 top-full mt-2 w-64 p-3 bg-bg-secondary border border-bg-card rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50"
+          >
+            <div className="text-sm font-semibold text-text-primary mb-2">
+              快捷键
+            </div>
+            <ul className="space-y-1.5 text-sm">
+              {SHORTCUT_DESCRIPTIONS.map(({ key, description }) => (
+                <li
+                  key={key}
+                  className="flex items-center justify-between gap-3 text-text-secondary"
+                >
+                  <span>{description}</span>
+                  <kbd className="px-1.5 py-0.5 text-xs font-mono bg-bg-card border border-bg-card rounded text-text-primary whitespace-nowrap">
+                    {formatShortcut(key)}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
         <button
           onClick={() => dispatch(toggleSettings())}
           className="p-2 rounded-lg hover:bg-bg-card transition-colors"

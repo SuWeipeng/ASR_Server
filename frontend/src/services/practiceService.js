@@ -9,7 +9,15 @@ export const practiceService = {
    */
   evaluateSpeech: async (audioBlob, targetText) => {
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.wav');
+    const mimeType = audioBlob.type || 'audio/webm';
+    const ext = mimeType.includes('ogg')
+      ? 'ogg'
+      : mimeType.includes('mp4')
+        ? 'mp4'
+        : mimeType.includes('wav')
+          ? 'wav'
+          : 'webm';
+    formData.append('audio', audioBlob, `recording.${ext}`);
     formData.append('target_text', targetText);
 
     return await api.post('/practice/evaluate', formData, {

@@ -7,15 +7,14 @@ import {
 } from '../store/playerSlice';
 import { setCurrentSubtitleIndex } from '../store/subtitleSlice';
 import { setRecording } from '../store/practiceSlice';
-import { toggleShortcutsHelp } from '../store/uiSlice';
 import { SHORTCUTS, isShortcutMatch } from '../utils/shortcuts';
 
 /**
  * Custom hook for keyboard shortcuts
- * @param {HTMLMediaElement} mediaElement - Video or audio element
+ * @param {React.RefObject<HTMLMediaElement>} mediaRef - Ref to the video/audio element
  * @param {Function} onSeekToSubtitle - Function to seek to subtitle
  */
-export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
+export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
   const dispatch = useDispatch();
   const subtitles = useSelector((state) => state.subtitle.subtitles);
   const currentSubtitleIndex = useSelector(
@@ -51,7 +50,7 @@ export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
       // Previous sentence
       if (isShortcutMatch(event, SHORTCUTS.PREVIOUS_SENTENCE)) {
         event.preventDefault();
-        if (mediaElement && currentSubtitleIndex > 0) {
+        if (mediaRef?.current && currentSubtitleIndex > 0) {
           onSeekToSubtitle(currentSubtitleIndex - 1);
         }
       }
@@ -59,7 +58,7 @@ export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
       // Next sentence
       if (isShortcutMatch(event, SHORTCUTS.NEXT_SENTENCE)) {
         event.preventDefault();
-        if (mediaElement && currentSubtitleIndex < subtitles.length - 1) {
+        if (mediaRef?.current && currentSubtitleIndex < subtitles.length - 1) {
           onSeekToSubtitle(currentSubtitleIndex + 1);
         }
       }
@@ -67,7 +66,7 @@ export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
       // Replay current sentence
       if (isShortcutMatch(event, SHORTCUTS.REPLAY_CURRENT)) {
         event.preventDefault();
-        if (mediaElement && currentSubtitleIndex >= 0) {
+        if (mediaRef?.current && currentSubtitleIndex >= 0) {
           onSeekToSubtitle(currentSubtitleIndex);
         }
       }
@@ -117,18 +116,12 @@ export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
       // Close modal
       if (event.key === SHORTCUTS.CLOSE_MODAL) {
         event.preventDefault();
-        // Close any open modals
-        dispatch(toggleShortcutsHelp(false));
       }
 
-      // Show help
-      if (event.key === SHORTCUTS.SHOW_HELP) {
-        event.preventDefault();
-        dispatch(toggleShortcutsHelp());
-      }
+      // Show help (no-op: help is shown via hover tooltip in Header)
     },
     [
-      mediaElement,
+      mediaRef,
       currentSubtitleIndex,
       subtitles.length,
       isRecording,
@@ -143,11 +136,9 @@ export const useKeyboardShortcuts = (mediaElement, onSeekToSubtitle) => {
   const handleKeyUp = useCallback(
     (event) => {
       if (isShortcutMatch(event, SHORTCUTS.START_RECORDING) && isRecording) {
-        const recordingDuration = Date.now() - recordingStartRef.current;
-        // Only stop recording if held for at least 500ms
-        if (recordingDuration > 500) {
-          dispatch(setRecording(false));
-        }
+        // Always reset isRecording on keyup to avoid the state getting
+        // stuck if the key is released before the 500ms threshold.
+        dispatch(setRecording(false));
       }
     },
     [isRecording, dispatch]

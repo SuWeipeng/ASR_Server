@@ -13,6 +13,7 @@ const initialState = {
   volume: 1.0,
   isMuted: false,
   isSeeking: false,       // True while user is dragging the progress bar
+  playbackRate: 1.0,      // Playback speed multiplier (0.5 / 0.75 / 1.0 / 1.25)
 };
 
 const playerSlice = createSlice({
@@ -65,6 +66,12 @@ const playerSlice = createSlice({
       state.singleSentenceMode = action.payload.mode;
       state.singleSentenceEnd = action.payload.endTime || null;
     },
+    setPlaybackRate: (state, action) => {
+      const rate = action.payload;
+      if ([0.5, 0.75, 1.0, 1.25].includes(rate)) {
+        state.playbackRate = rate;
+      }
+    },
   },
 });
 
@@ -83,6 +90,7 @@ export const {
   toggleLoop,
   toggleMute,
   setSeeking,
+  setPlaybackRate,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;
