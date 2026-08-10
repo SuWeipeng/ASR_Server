@@ -1,0 +1,20 @@
+# ASR Server - Python Dependencies
+
+# FastAPI and web framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+pydantic==2.10.0
+aiofiles==24.1.0
+
+# Deep learning and audio processing
+torch>=2.0.0
+soundfile==0.12.1
+resampy>=0.4.3
+scipy>=1.10.0
+
+# Qwen ASR (install after PyTorch)
+qwen-asr
+
+# Utility libraries
+numpy>=1.24.0
