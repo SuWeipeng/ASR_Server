@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { setPlaying, setVolume, setMuted, togglePlay, setSeeking, setCurrentTime, setIntentTime } from '../../store/playerSlice';
+import { setPlaying, setVolume, setMuted, togglePlay, setSeeking, setCurrentTime, setIntentTime, setSingleSentenceMode } from '../../store/playerSlice';
 import { setCurrentSubtitleIndex, clearSeekRequest } from '../../store/subtitleSlice';
 import { formatTime, getPlaybackProgress } from '../../utils/timeFormat';
 import { usePlayerSync } from '../../hooks/usePlayerSync';
@@ -32,6 +32,8 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const isMuted = useSelector((state) => state.player.isMuted);
   const playbackRate = useSelector((state) => state.player.playbackRate);
   const isSeeking = useSelector((state) => state.player.isSeeking);
+  const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
+  const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
   const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
   const currentSubtitleIndex = useSelector((state) => state.subtitle.currentSubtitleIndex);
   const seekRequest = useSelector((state) => state.subtitle.seekRequest);
@@ -69,13 +71,24 @@ export const VideoPlayer = forwardRef((props, ref) => {
   }, []);
 
   // Handle seek-to-subtitle requests from SubtitlePanel via Redux.
-  // Update intentTime but don't auto-play - let user click play button.
+  // Jump to subtitle, play it, and auto-pause when it ends (single sentence mode).
   useEffect(() => {
     if (seekRequest.index < 0) return;
     const subtitle = subtitles[seekRequest.index];
     if (subtitle && videoRef.current) {
+      // Jump to the subtitle start
       videoRef.current.currentTime = subtitle.start;
       dispatch(setIntentTime(subtitle.start));
+
+      // Enable single sentence mode with the subtitle's end time
+      dispatch(setSingleSentenceMode({
+        mode: true,
+        endTime: subtitle.end
+      }));
+
+      // Start playing
+      dispatch(setPlaying(true));
+
       dispatch(clearSeekRequest());
     }
   }, [seekRequest.token, subtitles, dispatch]);
@@ -87,6 +100,10 @@ export const VideoPlayer = forwardRef((props, ref) => {
 
   // Handle play/pause
   const togglePlayback = () => {
+    // When user manually clicks play button, exit single sentence mode
+    if (singleSentenceMode && !isPlaying) {
+      dispatch(setSingleSentenceMode({ mode: false, endTime: null }));
+    }
     dispatch(togglePlay());
   };
 

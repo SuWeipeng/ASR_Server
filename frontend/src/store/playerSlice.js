@@ -4,6 +4,8 @@ const initialState = {
   isPlaying: false,
   currentTime: 0,
   intentTime: 0,          // User's intended playback position (from seeking/subtitle click)
+  singleSentenceMode: false,  // When true, auto-pause after current sentence ends
+  singleSentenceEnd: null,    // The end time of the single sentence being played
   duration: 0,
   playbackRate: 1.0,
   loopMode: false,        // Single sentence loop
@@ -63,6 +65,10 @@ const playerSlice = createSlice({
       state.intentTime = action.payload;
       state.currentTime = action.payload; // Keep currentTime in sync for compatibility
     },
+    setSingleSentenceMode: (state, action) => {
+      state.singleSentenceMode = action.payload.mode;
+      state.singleSentenceEnd = action.payload.endTime || null;
+    },
   },
 });
 
@@ -70,6 +76,7 @@ export const {
   setPlaying,
   setCurrentTime,
   setIntentTime,
+  setSingleSentenceMode,
   setDuration,
   setPlaybackRate,
   setLoopMode,

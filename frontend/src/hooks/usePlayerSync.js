@@ -5,6 +5,7 @@ import {
   setPlaying,
   setDuration,
   setLoopRange,
+  setSingleSentenceMode,
 } from '../store/playerSlice';
 import { setCurrentSubtitleIndex } from '../store/subtitleSlice';
 
@@ -21,6 +22,8 @@ export const usePlayerSync = (mediaRef) => {
   const loopEnd = useSelector((state) => state.player.loopEnd);
   const playbackRate = useSelector((state) => state.player.playbackRate);
   const isSeeking = useSelector((state) => state.player.isSeeking);
+  const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
+  const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
   const currentTimeRef = useRef(0);
 
   /**
@@ -69,13 +72,22 @@ export const usePlayerSync = (mediaRef) => {
     dispatch(setCurrentTime(currentTime));
     updateCurrentSubtitle(currentTime);
 
+    // Handle single sentence mode - auto-pause when sentence ends
+    if (singleSentenceMode && singleSentenceEnd !== null) {
+      if (currentTime >= singleSentenceEnd) {
+        dispatch(setPlaying(false));
+        dispatch(setSingleSentenceMode({ mode: false, endTime: null }));
+        return;
+      }
+    }
+
     // Handle loop mode
     if (loopMode && loopStart !== null && loopEnd !== null) {
       if (currentTime >= loopEnd) {
         mediaElement.currentTime = loopStart;
       }
     }
-  }, [mediaRef, dispatch, updateCurrentSubtitle, loopMode, loopStart, loopEnd, isSeeking]);
+  }, [mediaRef, dispatch, updateCurrentSubtitle, loopMode, loopStart, loopEnd, isSeeking, singleSentenceMode, singleSentenceEnd]);
 
   /**
    * Handle loaded metadata event
