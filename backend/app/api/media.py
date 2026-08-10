@@ -72,6 +72,7 @@ async def get_media_file(file_id: str):
         headers={
             "Accept-Ranges": "bytes",  # Explicitly enable Range requests
             "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            "Access-Control-Allow-Origin": "*",  # Explicit CORS for video elements
         }
     )
 

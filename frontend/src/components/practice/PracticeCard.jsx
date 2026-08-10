@@ -4,8 +4,9 @@ import { Mic, Send, Trash2 } from 'lucide-react';
 import { setRecording, setUserAudio, clearUserAudio } from '../../store/practiceSlice';
 import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
+import { HighlightText } from './HighlightText';
 
-export const PracticeCard = () => {
+export const PracticeCard = ({ videoRef }) => {
   const dispatch = useDispatch();
   const { currentSubtitleIndex, subtitles } = useSelector(
     (state) => state.subtitle
@@ -84,12 +85,20 @@ export const PracticeCard = () => {
 
   return (
     <div className="space-y-4">
-      {/* Current sentence */}
-      <div className="card">
+      {/* Current sentence with highlight */}
+      <div className="card relative overflow-hidden">
         <h3 className="text-lg font-semibold mb-2 text-text-primary">
           当前练习句
         </h3>
-        <p className="text-xl text-text-primary">{currentSentence.text}</p>
+
+        {/* Text with synchronized highlighting */}
+        <div className="relative z-10">
+          <HighlightText
+            text={currentSentence.text}
+            sentenceStart={currentSentence.start}
+            sentenceEnd={currentSentence.end}
+          />
+        </div>
       </div>
 
       {/* Recording controls */}

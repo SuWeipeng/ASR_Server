@@ -112,7 +112,7 @@ function App() {
           </div>
 
           {/* Practice card */}
-          {fileId && <PracticeCard />}
+          {fileId && <PracticeCard videoRef={videoRef} />}
         </div>
 
         {/* Subtitle panel */}
