@@ -33,6 +33,7 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
   const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
+  const playbackRate = useSelector((state) => state.player.playbackRate);
   const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
   const currentSubtitleIndex = useSelector((state) => state.subtitle.currentSubtitleIndex);
   const seekRequest = useSelector((state) => state.subtitle.seekRequest);
@@ -313,6 +314,18 @@ export const VideoPlayer = forwardRef((props, ref) => {
               className="w-24"
               aria-label="音量"
             />
+            {/* Playback rate indicator */}
+            <span
+              className={`ml-2 px-2 py-1 text-xs font-mono rounded ${
+                playbackRate !== 1.0
+                  ? 'bg-primary/20 text-primary'
+                  : 'bg-bg-card text-text-secondary'
+              }`}
+              aria-label="当前播放倍速"
+              title="倍速（1/2/3/4 切换）"
+            >
+              {playbackRate.toFixed(2).replace(/\.?0+$/, '')}x
+            </span>
           </div>
         </div>
       </div>

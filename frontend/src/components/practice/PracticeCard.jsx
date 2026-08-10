@@ -6,6 +6,7 @@ import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
 import { HighlightText } from './HighlightText';
 import { WaveformDisplay } from './WaveformDisplay';
+import { UserRecordingWaveform } from './UserRecordingWaveform';
 
 export const PracticeCard = ({ videoRef }) => {
   const dispatch = useDispatch();
@@ -206,6 +207,16 @@ export const PracticeCard = ({ videoRef }) => {
           <p className="text-sm text-text-secondary mb-2">
             等级: {lastScore.accuracy_level}
           </p>
+
+          {/* User recording amplitude + pitch */}
+          {audioBlob && (
+            <div className="relative h-24 -mx-4 my-4">
+              <UserRecordingWaveform
+                audioBlob={audioBlob}
+                className="absolute inset-0"
+              />
+            </div>
+          )}
 
           {/* Diff display */}
           {diffResult && diffResult.length > 0 && (
