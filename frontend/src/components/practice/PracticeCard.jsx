@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Mic, Send, Trash2 } from 'lucide-react';
-import { setRecording, setUserAudio, clearUserAudio } from '../../store/practiceSlice';
+import { setRecording, setUserAudio, clearUserAudio, clearPractice } from '../../store/practiceSlice';
 import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
 import { HighlightText } from './HighlightText';
@@ -90,6 +90,7 @@ export const PracticeCard = ({ videoRef }) => {
   const handleClearRecording = () => {
     clearRecording();
     dispatch(clearUserAudio());
+    dispatch(clearPractice());
   };
 
   if (!currentSentence) {

@@ -36,7 +36,7 @@ export const Header = () => {
       {/* Left: Logo and file upload */}
       <div className="flex items-center space-x-4">
         <h1 className="text-xl font-bold text-text-primary">
-          ASR Practice
+          Speaking Practice
         </h1>
         <button
           onClick={handleFileUpload}

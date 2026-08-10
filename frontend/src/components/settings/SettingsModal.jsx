@@ -208,10 +208,6 @@ export const SettingsModal = () => {
 
           {!vadConfigLoading && vadConfig && (
             <>
-              <div className="text-sm text-text-secondary mb-4">
-                与 example_qwen3_asr_with_vad.py 保持一致的参数
-              </div>
-
               {/* 最小静音时长 */}
               <div className="space-y-2">
                 <label className="text-sm text-text-secondary">
@@ -266,7 +262,7 @@ export const SettingsModal = () => {
 
               {/* 默认值说明 */}
               <div className="p-4 bg-bg-card rounded-lg text-xs text-text-tertiary">
-                <div className="font-medium mb-2">example_qwen3_asr_with_vad.py 默认值:</div>
+                <div className="font-medium mb-2">默认值:</div>
                 <div>• min_silence_duration_ms: 500</div>
                 <div>• max_speech_duration_s: 30</div>
                 <div>• sampling_rate: 16000</div>
