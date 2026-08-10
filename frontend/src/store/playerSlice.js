@@ -3,6 +3,7 @@ import { createSlice } from '@reduxjs/toolkit';
 const initialState = {
   isPlaying: false,
   currentTime: 0,
+  intentTime: 0,          // User's intended playback position (from seeking/subtitle click)
   duration: 0,
   playbackRate: 1.0,
   loopMode: false,        // Single sentence loop
@@ -10,6 +11,7 @@ const initialState = {
   loopEnd: null,
   volume: 1.0,
   isMuted: false,
+  isSeeking: false,       // True while user is dragging the progress bar
 };
 
 const playerSlice = createSlice({
@@ -54,12 +56,20 @@ const playerSlice = createSlice({
     toggleMute: (state) => {
       state.isMuted = !state.isMuted;
     },
+    setSeeking: (state, action) => {
+      state.isSeeking = action.payload;
+    },
+    setIntentTime: (state, action) => {
+      state.intentTime = action.payload;
+      state.currentTime = action.payload; // Keep currentTime in sync for compatibility
+    },
   },
 });
 
 export const {
   setPlaying,
   setCurrentTime,
+  setIntentTime,
   setDuration,
   setPlaybackRate,
   setLoopMode,
@@ -70,6 +80,7 @@ export const {
   togglePlay,
   toggleLoop,
   toggleMute,
+  setSeeking,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

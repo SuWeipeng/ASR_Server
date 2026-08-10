@@ -101,6 +101,9 @@ const subtitleSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    clearSeekRequest: (state) => {
+      state.seekRequest = { index: -1, token: 0 };
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -156,6 +159,7 @@ export const {
   toggleTranslation,
   clearSubtitles,
   clearError,
+  clearSeekRequest,
 } = subtitleSlice.actions;
 
 export default subtitleSlice.reducer;

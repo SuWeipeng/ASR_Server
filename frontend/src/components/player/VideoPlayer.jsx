@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { setPlaying, setVolume, setMuted, togglePlay } from '../../store/playerSlice';
-import { setCurrentSubtitleIndex } from '../../store/subtitleSlice';
+import { setPlaying, setVolume, setMuted, togglePlay, setSeeking, setCurrentTime, setIntentTime } from '../../store/playerSlice';
+import { setCurrentSubtitleIndex, clearSeekRequest } from '../../store/subtitleSlice';
 import { formatTime, getPlaybackProgress } from '../../utils/timeFormat';
 import { usePlayerSync } from '../../hooks/usePlayerSync';
 import { mediaService } from '../../services/mediaService';
@@ -11,6 +11,8 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const dispatch = useDispatch();
   const videoRef = useRef(null);
   const containerRef = useRef(null);
+  const progressBarRef = useRef(null);
+  const isDraggingRef = useRef(false);
 
   // Forward the video element directly to the parent ref
   const setVideoRef = useCallback((el) => {
@@ -29,21 +31,54 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const volume = useSelector((state) => state.player.volume);
   const isMuted = useSelector((state) => state.player.isMuted);
   const playbackRate = useSelector((state) => state.player.playbackRate);
+  const isSeeking = useSelector((state) => state.player.isSeeking);
   const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
+  const currentSubtitleIndex = useSelector((state) => state.subtitle.currentSubtitleIndex);
   const seekRequest = useSelector((state) => state.subtitle.seekRequest);
 
   const [progress, setProgress] = useState(0);
 
+  // Refs that mirror Redux state so drag handlers can read latest values
+  // without re-creating the listeners on every dispatch.
+  const subtitlesRef = useRef(subtitles);
+  const currentSubtitleIndexRef = useRef(currentSubtitleIndex);
+  const durationRef = useRef(duration);
+  useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
+  useEffect(() => { currentSubtitleIndexRef.current = currentSubtitleIndex; }, [currentSubtitleIndex]);
+  useEffect(() => { durationRef.current = duration; }, [duration]);
+
   usePlayerSync(videoRef);
 
-  // Handle seek-to-subtitle requests from SubtitlePanel via Redux
+  // Compute a seek time from a pointer/touch position relative to the bar.
+  const computeTimeFromEvent = useCallback((clientX) => {
+    const bar = progressBarRef.current;
+    if (!bar) return 0;
+    const rect = bar.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
+    const dur = durationRef.current;
+    if (!dur || dur <= 0) return 0;
+    return percentage * dur;
+  }, []);
+
+  // Find the subtitle index that contains the given time.
+  const findSubtitleIndex = useCallback((time) => {
+    const subs = subtitlesRef.current;
+    if (!subs || subs.length === 0) return -1;
+    return subs.findIndex((s) => time >= s.start && time < s.end);
+  }, []);
+
+  // Handle seek-to-subtitle requests from SubtitlePanel via Redux.
+  // Update intentTime but don't auto-play - let user click play button.
   useEffect(() => {
     if (seekRequest.index < 0) return;
     const subtitle = subtitles[seekRequest.index];
     if (subtitle && videoRef.current) {
       videoRef.current.currentTime = subtitle.start;
+      dispatch(setIntentTime(subtitle.start));
+      dispatch(clearSeekRequest());
     }
-  }, [seekRequest, subtitles]);
+  }, [seekRequest.token, subtitles, dispatch]);
 
   // Update progress bar
   useEffect(() => {
@@ -55,17 +90,74 @@ export const VideoPlayer = forwardRef((props, ref) => {
     dispatch(togglePlay());
   };
 
-  // Handle seek
-  const handleSeek = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = x / rect.width;
-    const newTime = percentage * duration;
+  // Progress bar drag: pointer/touch start begins a drag, window-level
+  // move/end keep tracking even when the cursor leaves the bar.
+  const handleSeekStart = (e) => {
+    const dur = durationRef.current;
+    if (!dur || dur <= 0) return;
+
+    isDraggingRef.current = true;
+    dispatch(setSeeking(true));
+
+    const point = e.touches ? e.touches[0] : e;
+    const newTime = computeTimeFromEvent(point.clientX);
 
     if (videoRef.current) {
       videoRef.current.currentTime = newTime;
     }
+
+    dispatch(setIntentTime(newTime));
+
+    const idx = findSubtitleIndex(newTime);
+    if (idx !== -1 && idx !== currentSubtitleIndexRef.current) {
+      dispatch(setCurrentSubtitleIndex(idx));
+    }
   };
+
+  const handleSeekMove = useCallback((e) => {
+    if (!isDraggingRef.current) return;
+    const point = e.touches ? e.touches[0] : e;
+    const newTime = computeTimeFromEvent(point.clientX);
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+    dispatch(setIntentTime(newTime));
+    const idx = findSubtitleIndex(newTime);
+    if (idx !== -1 && idx !== currentSubtitleIndexRef.current) {
+      dispatch(setCurrentSubtitleIndex(idx));
+    }
+  }, [computeTimeFromEvent, findSubtitleIndex, dispatch]);
+
+  const handleSeekEnd = useCallback(() => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    dispatch(setSeeking(false));
+  }, [dispatch]);
+
+  // Register global pointer/touch listeners while the component is mounted.
+  useEffect(() => {
+    window.addEventListener('mousemove', handleSeekMove);
+    window.addEventListener('mouseup', handleSeekEnd);
+    window.addEventListener('touchmove', handleSeekMove, { passive: true });
+    window.addEventListener('touchend', handleSeekEnd);
+    window.addEventListener('touchcancel', handleSeekEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleSeekMove);
+      window.removeEventListener('mouseup', handleSeekEnd);
+      window.removeEventListener('touchmove', handleSeekMove);
+      window.removeEventListener('touchend', handleSeekEnd);
+      window.removeEventListener('touchcancel', handleSeekEnd);
+    };
+  }, [handleSeekMove, handleSeekEnd]);
+
+  // Safety net: if component unmounts mid-drag, clear the flag.
+  useEffect(() => {
+    return () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+      }
+    };
+  }, []);
 
   // Handle volume change
   const handleVolumeChange = (e) => {
@@ -85,6 +177,7 @@ export const VideoPlayer = forwardRef((props, ref) => {
   };
 
   // Sync play state with video
+  // Only depends on isPlaying - let video element be the source of truth during playback
   useEffect(() => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -118,11 +211,11 @@ export const VideoPlayer = forwardRef((props, ref) => {
       {/* Video element */}
       <div className="relative aspect-video bg-black group">
         <video
+          key={fileId}
           ref={setVideoRef}
           src={mediaUrl}
+          preload="auto"
           className="w-full h-full"
-          onPlay={() => dispatch(setPlaying(true))}
-          onPause={() => dispatch(setPlaying(false))}
           onClick={togglePlayback}
         />
 
@@ -144,15 +237,17 @@ export const VideoPlayer = forwardRef((props, ref) => {
       <div className="p-4 space-y-3">
         {/* Progress bar */}
         <div
-          className="relative h-2 bg-bg-card rounded-full cursor-pointer group"
-          onClick={handleSeek}
+          ref={progressBarRef}
+          className="relative h-2 bg-bg-card rounded-full cursor-pointer group select-none touch-none"
+          onMouseDown={handleSeekStart}
+          onTouchStart={handleSeekStart}
         >
           <div
-            className="absolute h-full bg-primary rounded-full transition-all"
+            className={`absolute h-full bg-primary rounded-full ${isSeeking ? '' : 'transition-all'}`}
             style={{ width: `${progress}%` }}
           />
           <div
-            className="absolute h-full w-4 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            className={`absolute h-full w-4 bg-primary rounded-full ${isSeeking ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
             style={{ left: `${progress}%`, transform: 'translateX(-50%)' }}
           />
         </div>

@@ -52,6 +52,7 @@ async def upload_media_file(file: UploadFile = File(...)):
 async def get_media_file(file_id: str):
     """
     Get media file by ID (for streaming/download)
+    Supports Range requests for video seeking
     """
     media_file = media_service.get_file(file_id)
 
@@ -63,11 +64,15 @@ async def get_media_file(file_id: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    # Return file for streaming
+    # Return file for streaming with Range support
     return FileResponse(
         file_path,
         media_type="video/mp4" if media_file.file_type == "video" else "audio/mpeg",
-        filename=media_file.original_filename
+        filename=media_file.original_filename,
+        headers={
+            "Accept-Ranges": "bytes",  # Explicitly enable Range requests
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+        }
     )
 
 

@@ -15,9 +15,12 @@ import { setCurrentSubtitleIndex } from '../store/subtitleSlice';
  */
 export const usePlayerSync = (mediaRef) => {
   const dispatch = useDispatch();
-  const subtitles = useSelector((state) => state.subtitle.subtitles);
+  const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
   const loopMode = useSelector((state) => state.player.loopMode);
+  const loopStart = useSelector((state) => state.player.loopStart);
+  const loopEnd = useSelector((state) => state.player.loopEnd);
   const playbackRate = useSelector((state) => state.player.playbackRate);
+  const isSeeking = useSelector((state) => state.player.isSeeking);
   const currentTimeRef = useRef(0);
 
   /**
@@ -56,21 +59,23 @@ export const usePlayerSync = (mediaRef) => {
     const mediaElement = mediaRef.current;
     if (!mediaElement) return;
 
+    // While the user is dragging the progress bar, VideoPlayer is the source
+    // of truth for currentTime / currentSubtitleIndex. Skip the timeupdate
+    // dispatch chain to avoid redundant updates and visual jitter.
+    if (isSeeking) return;
+
     const currentTime = mediaElement.currentTime;
     currentTimeRef.current = currentTime;
     dispatch(setCurrentTime(currentTime));
     updateCurrentSubtitle(currentTime);
 
     // Handle loop mode
-    if (loopMode) {
-      const loopStart = parseFloat(mediaElement.dataset.loopStart || 0);
-      const loopEnd = parseFloat(mediaElement.dataset.loopEnd || 0);
-
-      if (loopEnd > 0 && currentTime >= loopEnd) {
+    if (loopMode && loopStart !== null && loopEnd !== null) {
+      if (currentTime >= loopEnd) {
         mediaElement.currentTime = loopStart;
       }
     }
-  }, [mediaRef, dispatch, updateCurrentSubtitle, loopMode]);
+  }, [mediaRef, dispatch, updateCurrentSubtitle, loopMode, loopStart, loopEnd, isSeeking]);
 
   /**
    * Handle loaded metadata event

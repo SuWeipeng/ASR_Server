@@ -10,6 +10,7 @@ export const SubtitlePanel = () => {
     (state) => state.subtitle.currentSubtitleIndex
   );
   const searchQuery = useSelector((state) => state.subtitle.searchQuery);
+  const isSeeking = useSelector((state) => state.player.isSeeking);
 
   const subtitleListRef = useRef(null);
   const subtitleRefs = useRef([]);
@@ -42,29 +43,36 @@ export const SubtitlePanel = () => {
     }, 2000);
   };
 
-  // Auto-scroll to current subtitle (only when not user scrolling)
+  // Auto-scroll to current subtitle.
+  // - While the user is dragging the progress bar, follow the seek position
+  //   immediately with `behavior: 'auto'` so the list doesn't lag behind.
+  // - While the user is freely scrolling the subtitle list, don't fight them.
+  // - Otherwise, smooth-scroll to the current subtitle.
   useEffect(() => {
-    if (currentSubtitleIndex >= 0 && !isUserScrolling && subtitleRefs.current[currentSubtitleIndex]) {
-      const currentElement = subtitleRefs.current[currentSubtitleIndex];
-      const container = subtitleListRef.current;
+    if (currentSubtitleIndex < 0 || !subtitleRefs.current[currentSubtitleIndex]) return;
+    if (isUserScrolling && !isSeeking) return;
 
-      if (currentElement && container) {
-        // Small delay to ensure DOM is updated
-        setTimeout(() => {
-          const containerRect = container.getBoundingClientRect();
-          const elementRect = currentElement.getBoundingClientRect();
-          const relativeTop = elementRect.top - containerRect.top;
-          const centerOffset = (containerRect.height - elementRect.height) / 2;
+    const currentElement = subtitleRefs.current[currentSubtitleIndex];
+    const container = subtitleListRef.current;
+    if (!currentElement || !container) return;
 
-          // Scroll to center the current subtitle
-          container.scrollTo({
-            top: relativeTop + container.scrollTop - centerOffset,
-            behavior: 'smooth'
-          });
-        }, 100);
-      }
-    }
-  }, [currentSubtitleIndex, isUserScrolling]);
+    const behavior = isSeeking ? 'auto' : 'smooth';
+    const delay = isSeeking ? 0 : 100;
+
+    const timeoutId = setTimeout(() => {
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = currentElement.getBoundingClientRect();
+      const relativeTop = elementRect.top - containerRect.top;
+      const centerOffset = (containerRect.height - elementRect.height) / 2;
+
+      container.scrollTo({
+        top: relativeTop + container.scrollTop - centerOffset,
+        behavior,
+      });
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentSubtitleIndex, isUserScrolling, isSeeking]);
 
   // Clean up refs when subtitles change
   useEffect(() => {
