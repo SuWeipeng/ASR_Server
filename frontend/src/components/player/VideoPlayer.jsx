@@ -30,7 +30,6 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const duration = useSelector((state) => state.player.duration);
   const volume = useSelector((state) => state.player.volume);
   const isMuted = useSelector((state) => state.player.isMuted);
-  const playbackRate = useSelector((state) => state.player.playbackRate);
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
   const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
@@ -314,11 +313,6 @@ export const VideoPlayer = forwardRef((props, ref) => {
               className="w-24"
               aria-label="音量"
             />
-          </div>
-
-          {/* Playback speed */}
-          <div className="text-sm text-text-secondary">
-            {playbackRate}x
           </div>
         </div>
       </div>

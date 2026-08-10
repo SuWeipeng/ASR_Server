@@ -1,7 +1,7 @@
 """
 Media upload and processing API routes
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import FileResponse
 from typing import Optional
 import os
@@ -12,6 +12,14 @@ from app.models.schemas import (
     ErrorResponse
 )
 from app.utils import logger, cleanup_file
+
+# Import waveform service with error handling
+try:
+    from app.services.waveform_service import waveform_service
+    logger.info("Waveform service loaded successfully")
+except ImportError as e:
+    logger.error(f"Failed to import waveform service: {e}")
+    waveform_service = None
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
@@ -129,3 +137,36 @@ async def get_extracted_audio(file_id: str):
         media_type="audio/wav",
         filename=f"{file_id}.wav"
     )
+
+
+@router.get("/waveform/{file_id}")
+async def get_waveform_data(
+    file_id: str,
+    start_time: float = Query(0, ge=0, description="Start time in seconds"),
+    end_time: Optional[float] = Query(None, ge=0, description="End time in seconds"),
+    num_points: int = Query(500, ge=10, le=2000, description="Number of data points")
+):
+    """
+    Get waveform visualization data for a media file
+
+    Returns amplitude and pitch data for visualization.
+    Use start_time and end_time to get waveform for a specific segment.
+    """
+    if waveform_service is None:
+        raise HTTPException(status_code=503, detail="Waveform service not available")
+
+    result = waveform_service.get_waveform_data(
+        file_id=file_id,
+        start_time=start_time,
+        end_time=end_time,
+        num_points=num_points
+    )
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Failed to generate waveform data")
+
+    return {
+        "success": True,
+        "file_id": file_id,
+        "waveform": result
+    }

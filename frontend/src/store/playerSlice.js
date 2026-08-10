@@ -7,7 +7,6 @@ const initialState = {
   singleSentenceMode: false,  // When true, auto-pause after current sentence ends
   singleSentenceEnd: null,    // The end time of the single sentence being played
   duration: 0,
-  playbackRate: 1.0,
   loopMode: false,        // Single sentence loop
   loopStart: null,
   loopEnd: null,
@@ -28,9 +27,6 @@ const playerSlice = createSlice({
     },
     setDuration: (state, action) => {
       state.duration = action.payload;
-    },
-    setPlaybackRate: (state, action) => {
-      state.playbackRate = action.payload;
     },
     setLoopMode: (state, action) => {
       state.loopMode = action.payload;
@@ -78,7 +74,6 @@ export const {
   setIntentTime,
   setSingleSentenceMode,
   setDuration,
-  setPlaybackRate,
   setLoopMode,
   setLoopRange,
   clearLoopRange,

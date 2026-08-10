@@ -12,6 +12,7 @@ torch>=2.0.0
 soundfile==0.12.1
 resampy>=0.4.3
 scipy>=1.10.0
+librosa>=0.10.0
 
 # Qwen ASR (install after PyTorch)
 qwen-asr

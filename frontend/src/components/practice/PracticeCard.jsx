@@ -5,9 +5,11 @@ import { setRecording, setUserAudio, clearUserAudio } from '../../store/practice
 import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
 import { HighlightText } from './HighlightText';
+import { WaveformDisplay } from './WaveformDisplay';
 
 export const PracticeCard = ({ videoRef }) => {
   const dispatch = useDispatch();
+  const fileId = useSelector((state) => state.media.fileId);
   const { currentSubtitleIndex, subtitles } = useSelector(
     (state) => state.subtitle
   );
@@ -85,11 +87,23 @@ export const PracticeCard = ({ videoRef }) => {
 
   return (
     <div className="space-y-4">
-      {/* Current sentence with highlight */}
+      {/* Current sentence with highlight and waveform */}
       <div className="card relative overflow-hidden">
         <h3 className="text-lg font-semibold mb-2 text-text-primary">
           当前练习句
         </h3>
+
+        {/* Waveform background */}
+        <div className="relative h-24 -mx-4 -mt-2 mb-2">
+          {fileId && currentSentence && (
+            <WaveformDisplay
+              fileId={fileId}
+              startTime={currentSentence.start}
+              endTime={currentSentence.end}
+              className="absolute inset-0"
+            />
+          )}
+        </div>
 
         {/* Text with synchronized highlighting */}
         <div className="relative z-10">

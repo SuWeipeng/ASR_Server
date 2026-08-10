@@ -20,7 +20,6 @@ export const usePlayerSync = (mediaRef) => {
   const loopMode = useSelector((state) => state.player.loopMode);
   const loopStart = useSelector((state) => state.player.loopStart);
   const loopEnd = useSelector((state) => state.player.loopEnd);
-  const playbackRate = useSelector((state) => state.player.playbackRate);
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const singleSentenceMode = useSelector((state) => state.player.singleSentenceMode);
   const singleSentenceEnd = useSelector((state) => state.player.singleSentenceEnd);
@@ -124,16 +123,6 @@ export const usePlayerSync = (mediaRef) => {
       mediaElement.removeEventListener('ended', handleEnded);
     };
   }, [mediaRef, handleTimeUpdate, handleLoadedMetadata, handleEnded]);
-
-  /**
-   * Apply playback rate changes
-   */
-  useEffect(() => {
-    const mediaElement = mediaRef.current;
-    if (!mediaElement) return;
-
-    mediaElement.playbackRate = playbackRate;
-  }, [mediaRef, playbackRate]);
 
   return {
     updateCurrentSubtitle,
