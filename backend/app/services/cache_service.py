@@ -3,6 +3,9 @@ Cache service for ASR transcription results
 """
 import json
 import shutil
+import os
+import tempfile
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -18,7 +21,7 @@ class CacheService:
     """Service for managing ASR transcription cache"""
 
     # Required cache files
-    CACHE_FILES = ["audio.mp3", "transcription.json", "subtitle.srt", "subtitle.vtt"]
+    CACHE_FILES = ["audio.mp3", "audio_denoised.mp3", "transcription.json", "subtitle.srt", "subtitle.vtt"]
     METADATA_FILE = "metadata.json"
 
     def __init__(self):
@@ -206,11 +209,69 @@ class CacheService:
             with open(transcription_file, 'w', encoding='utf-8') as f:
                 json.dump(transcription_data, f, ensure_ascii=False, indent=2)
 
-            # Copy audio file
+            # Copy audio file (original)
             audio_cache = cache_dir / "audio.mp3"
             if audio_path and Path(audio_path).exists():
                 shutil.copy2(audio_path, audio_cache)
                 logger.info(f"Copied audio to cache: {audio_cache}")
+
+                # Save noise-reduced version for comparison
+                audio_denoised_cache = cache_dir / "audio_denoised.mp3"
+                try:
+                    import soundfile as sf
+                    import numpy as np
+                    from app.core.noise_config import get_noise_config
+                    from app.utils.audio import apply_noise_reduction
+
+                    # Get noise config
+                    noise_config = get_noise_config().get_config()
+
+                    if noise_config.enabled:
+                        logger.info(f"Applying noise reduction for cache: audio_denoised.mp3")
+
+                        # Load audio
+                        audio, sr = sf.read(audio_path)
+                        if len(audio.shape) > 1:
+                            audio = audio.mean(axis=1)
+
+                        # Apply noise reduction
+                        denoised_audio = apply_noise_reduction(
+                            audio,
+                            sr,
+                            enabled=noise_config.enabled,
+                            lowcut=noise_config.lowcut,
+                            highcut=noise_config.highcut,
+                            order=noise_config.order,
+                            filter_type=noise_config.filter_type,
+                            normalize_after_filter=noise_config.normalize_after_filter
+                        )
+
+                        # Save to temp WAV file
+                        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                        temp_wav_path = temp_wav.name
+                        temp_wav.close()
+                        sf.write(temp_wav_path, denoised_audio, sr)
+
+                        # Convert to MP3 using FFmpeg
+                        result = subprocess.run([
+                            'ffmpeg', '-y', '-i', temp_wav_path,
+                            '-b:a', '192k', str(audio_denoised_cache)
+                        ], capture_output=True)
+
+                        # Clean up temp file
+                        try:
+                            os.unlink(temp_wav_path)
+                        except:
+                            pass
+
+                        if result.returncode == 0:
+                            logger.info(f"Saved denoised audio to cache: {audio_denoised_cache}")
+                        else:
+                            logger.warning(f"FFmpeg conversion failed for denoised audio")
+                    else:
+                        logger.info("Noise reduction disabled, skipping audio_denoised.mp3")
+                except Exception as e:
+                    logger.warning(f"Failed to create denoised audio for cache: {e}")
             else:
                 logger.warning(f"Audio file not found: {audio_path}")
 

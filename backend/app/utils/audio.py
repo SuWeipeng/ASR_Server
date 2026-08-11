@@ -275,3 +275,162 @@ def detect_silence(
                 is_silent = False
 
     return silence_segments
+
+
+def apply_bandpass_filter(
+    data: np.ndarray,
+    lowcut: int,
+    highcut: int,
+    fs: int,
+    order: int = 4
+) -> np.ndarray:
+    """
+    Apply Butterworth bandpass filter to audio data
+
+    This removes frequencies outside the human speech range (300-3400 Hz),
+    effectively eliminating low-frequency noise (fans, hum) and high-frequency
+    noise (hiss, electronic interference).
+
+    Args:
+        data: Audio waveform array
+        lowcut: Low frequency cutoff in Hz (frequencies below this are removed)
+        highcut: High frequency cutoff in Hz (frequencies above this are removed)
+        fs: Sample rate in Hz
+        order: Filter order (higher = steeper cutoff, but more computation)
+
+    Returns:
+        Filtered audio array
+    """
+    from scipy import signal
+
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+
+    # Design Butterworth bandpass filter
+    b, a = signal.butter(order, [low, high], btype='band')
+
+    # Apply filter using lfilter (forward filter)
+    y = signal.lfilter(b, a, data)
+
+    return y
+
+
+def apply_highpass_filter(
+    data: np.ndarray,
+    cutoff: int,
+    fs: int,
+    order: int = 4
+) -> np.ndarray:
+    """
+    Apply Butterworth highpass filter to remove low-frequency noise
+
+    Args:
+        data: Audio waveform array
+        cutoff: Cutoff frequency in Hz (frequencies below this are removed)
+        fs: Sample rate in Hz
+        order: Filter order
+
+    Returns:
+        Filtered audio array
+    """
+    from scipy import signal
+
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+
+    b, a = signal.butter(order, normal_cutoff, btype='high')
+    y = signal.lfilter(b, a, data)
+
+    return y
+
+
+def apply_lowpass_filter(
+    data: np.ndarray,
+    cutoff: int,
+    fs: int,
+    order: int = 4
+) -> np.ndarray:
+    """
+    Apply Butterworth lowpass filter to remove high-frequency noise
+
+    Args:
+        data: Audio waveform array
+        cutoff: Cutoff frequency in Hz (frequencies above this are removed)
+        fs: Sample rate in Hz
+        order: Filter order
+
+    Returns:
+        Filtered audio array
+    """
+    from scipy import signal
+
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+
+    b, a = signal.butter(order, normal_cutoff, btype='low')
+    y = signal.lfilter(b, a, data)
+
+    return y
+
+
+def apply_noise_reduction(
+    data: np.ndarray,
+    fs: int,
+    enabled: bool = True,
+    lowcut: int = 200,
+    highcut: int = 3500,
+    order: int = 4,
+    filter_type: str = "bandpass",
+    normalize_after_filter: bool = True
+) -> np.ndarray:
+    """
+    Apply noise reduction using traditional signal processing (Butterworth filter)
+
+    This is effective for mild background noise like fans, hum, and white noise.
+    It operates entirely offline with minimal computational overhead.
+
+    Args:
+        data: Audio waveform array
+        fs: Sample rate in Hz
+        enabled: Whether to apply noise reduction
+        lowcut: Low frequency cutoff in Hz
+        highcut: High frequency cutoff in Hz
+        order: Filter order (1-8, higher = steeper but more computation)
+        filter_type: Type of filter - "bandpass", "highpass", or "lowpass"
+        normalize_after_filter: Whether to normalize audio after filtering
+
+    Returns:
+        Processed audio array (original if disabled or error occurs)
+    """
+    if not enabled:
+        return data
+
+    try:
+        logger.info(
+            f"Applying noise reduction: type={filter_type}, "
+            f"lowcut={lowcut}Hz, highcut={highcut}Hz, order={order}"
+        )
+
+        # Apply appropriate filter
+        if filter_type == "bandpass":
+            filtered = apply_bandpass_filter(data, lowcut, highcut, fs, order)
+        elif filter_type == "highpass":
+            filtered = apply_highpass_filter(data, lowcut, fs, order)
+        elif filter_type == "lowpass":
+            filtered = apply_lowpass_filter(data, highcut, fs, order)
+        else:
+            logger.warning(f"Unknown filter type: {filter_type}, using bandpass")
+            filtered = apply_bandpass_filter(data, lowcut, highcut, fs, order)
+
+        # Normalize after filtering if requested
+        if normalize_after_filter:
+            filtered = normalize_audio(filtered)
+            logger.debug("Normalized audio after noise reduction")
+
+        logger.info("Noise reduction applied successfully")
+        return filtered
+
+    except Exception as e:
+        logger.error(f"Noise reduction failed: {e}, returning original audio")
+        return data

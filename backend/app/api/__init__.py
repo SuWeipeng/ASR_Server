@@ -2,7 +2,7 @@
 API routes package
 """
 from fastapi import APIRouter
-from app.api import media, transcription, practice, dictionary, system, vad_config
+from app.api import media, transcription, practice, dictionary, system, vad_config, noise_config
 
 # Create main API router
 api_router = APIRouter()
@@ -14,5 +14,6 @@ api_router.include_router(practice.router)
 api_router.include_router(dictionary.router)
 api_router.include_router(system.router)
 api_router.include_router(vad_config.router)
+api_router.include_router(noise_config.router)
 
 __all__ = ["api_router"]

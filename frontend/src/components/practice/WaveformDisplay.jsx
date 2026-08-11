@@ -169,25 +169,22 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
     const sliceWidth = width / amplitude.length;
     let x = 0;
 
-    // Draw the waveform
-    ctx.moveTo(0, height / 2);
+    // Draw from bottom up (like Python script: 0 to 1.1 range)
+    ctx.moveTo(0, height); // Start at bottom
 
     for (let i = 0; i < amplitude.length; i++) {
       const amp = amplitude[i];
-      const y = (amp * 0.8 + 1) / 2 * height; // Scale to 80% of height
+      // Map 0-1 amplitude to height (inverted Y, 0 at bottom)
+      const y = height - (amp * 0.9 * height); // Scale to 90% of height
 
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+      ctx.lineTo(x, y);
 
       x += sliceWidth;
     }
 
     ctx.stroke();
 
-    // Fill bottom area
+    // Fill area under the curve
     ctx.lineTo(width, height);
     ctx.lineTo(0, height);
     ctx.closePath();
@@ -201,8 +198,9 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
     const validPitches = pitch.filter(p => p !== null && p !== undefined);
     if (validPitches.length < 2) return;
 
-    const minPitch = 80;  // Hz
-    const maxPitch = 500; // Hz
+    // Dynamic range based on actual data (like Python script)
+    const minPitch = 0;
+    const maxPitch = Math.max(500, Math.max(...validPitches) * 1.15);
 
     ctx.beginPath();
     ctx.lineWidth = 2.5;
@@ -221,12 +219,10 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
         continue;
       }
 
-      // Clamp pitch to reasonable range
-      const clampedPitch = Math.max(minPitch, Math.min(maxPitch, p));
-
       // Map pitch to Y position (low pitch = bottom, high pitch = top)
-      const normalizedPitch = (clampedPitch - minPitch) / (maxPitch - minPitch);
-      const y = height - (normalizedPitch * height * 0.7 + height * 0.15);
+      // Use dynamic range: 0 to maxPitch
+      const normalizedPitch = Math.min(1, p / maxPitch);
+      const y = height - (normalizedPitch * height * 0.9 + height * 0.05);
 
       const x = i * sliceWidth;
 

@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "lowcut": 500,
+  "highcut": 3600,
+  "order": 6,
+  "filter_type": "bandpass",
+  "normalize_after_filter": true
+}

@@ -13,8 +13,10 @@ import torch
 
 from app.core.vad_model import get_vad_model
 from app.core.vad_config import get_vad_config
+from app.core.noise_config import get_noise_config
 from app.config import settings
 from app.utils.logger import logger
+from app.utils.audio import apply_noise_reduction
 
 
 @dataclass
@@ -60,6 +62,22 @@ class VADAudioSplitter:
             # Convert to mono if stereo
             if len(wav.shape) > 1:
                 wav = wav.mean(axis=1)
+
+            # Apply noise reduction before VAD
+            noise_config = get_noise_config().get_config()
+            if noise_config.enabled:
+                logger.info(f"Applying noise reduction before VAD...")
+                wav = apply_noise_reduction(
+                    wav,
+                    sr,
+                    enabled=noise_config.enabled,
+                    lowcut=noise_config.lowcut,
+                    highcut=noise_config.highcut,
+                    order=noise_config.order,
+                    filter_type=noise_config.filter_type,
+                    normalize_after_filter=noise_config.normalize_after_filter
+                )
+                logger.info(f"Noise reduction completed")
 
             # 获取动态配置
             vad_config = get_vad_config().get_config()

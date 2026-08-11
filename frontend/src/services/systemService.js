@@ -57,4 +57,29 @@ export const systemService = {
   resetVADConfig: async () => {
     return await api.post('/vad/config/reset');
   },
+
+  /**
+   * Get noise reduction configuration
+   * @returns {Promise} Noise reduction configuration
+   */
+  getNoiseConfig: async () => {
+    return await api.get('/noise/config');
+  },
+
+  /**
+   * Update noise reduction configuration
+   * @param {Object} config - Noise reduction configuration updates
+   * @returns {Promise} Updated noise reduction configuration
+   */
+  updateNoiseConfig: async (config) => {
+    return await api.put('/noise/config', config);
+  },
+
+  /**
+   * Reset noise reduction configuration to defaults
+   * @returns {Promise} Reset noise reduction configuration
+   */
+  resetNoiseConfig: async () => {
+    return await api.post('/noise/config/reset');
+  },
 };

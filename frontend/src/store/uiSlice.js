@@ -46,6 +46,39 @@ export const updateVADConfig = createAsyncThunk(
   }
 );
 
+export const getNoiseConfig = createAsyncThunk(
+  'ui/getNoiseConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.getNoiseConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const updateNoiseConfig = createAsyncThunk(
+  'ui/updateNoiseConfig',
+  async (config, { rejectWithValue, dispatch, getState }) => {
+    try {
+      const response = await systemService.updateNoiseConfig(config);
+
+      // 更新成功后，如果有当前文件，强制刷新字幕（跳过缓存）
+      const fileId = getState().media.fileId;
+      if (fileId) {
+        // 动态导入 subtitleSlice 避免循环依赖
+        const { generateSubtitles } = await import('../store/subtitleSlice');
+        await dispatch(generateSubtitles({ fileId, forceRefresh: true }));
+      }
+
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 const initialState = {
   isLoading: false,
   loadingMessage: '',
@@ -60,6 +93,9 @@ const initialState = {
   vadConfig: null,
   vadConfigLoading: false,
   vadConfigError: null,
+  noiseConfig: null,
+  noiseConfigLoading: false,
+  noiseConfigError: null,
 };
 
 function getInitialMicDeviceId() {
@@ -138,6 +174,32 @@ const uiSlice = createSlice({
       .addCase(updateVADConfig.rejected, (state, action) => {
         state.vadConfigLoading = false;
         state.vadConfigError = action.payload;
+      })
+      // Get noise config
+      .addCase(getNoiseConfig.pending, (state) => {
+        state.noiseConfigLoading = true;
+        state.noiseConfigError = null;
+      })
+      .addCase(getNoiseConfig.fulfilled, (state, action) => {
+        state.noiseConfigLoading = false;
+        state.noiseConfig = action.payload;
+      })
+      .addCase(getNoiseConfig.rejected, (state, action) => {
+        state.noiseConfigLoading = false;
+        state.noiseConfigError = action.payload;
+      })
+      // Update noise config
+      .addCase(updateNoiseConfig.pending, (state) => {
+        state.noiseConfigLoading = true;
+        state.noiseConfigError = null;
+      })
+      .addCase(updateNoiseConfig.fulfilled, (state, action) => {
+        state.noiseConfigLoading = false;
+        state.noiseConfig = action.payload;
+      })
+      .addCase(updateNoiseConfig.rejected, (state, action) => {
+        state.noiseConfigLoading = false;
+        state.noiseConfigError = action.payload;
       });
   },
 });
@@ -154,5 +216,8 @@ export const {
   hideWordTooltip,
   setMicDeviceId,
 } = uiSlice.actions;
+
+export const getNoiseConfigAction = getNoiseConfig;
+export const updateNoiseConfigAction = updateNoiseConfig;
 
 export default uiSlice.reducer;

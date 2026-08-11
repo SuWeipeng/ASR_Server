@@ -16,3 +16,4 @@ example_qwen3_forced_aligner.py
 VAD_ASR_README.md
 test_api.py
 test_direct.py
+降噪功能实施总结.md

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { X, RotateCcw, Mic } from 'lucide-react';
-import { getVADConfig, updateVADConfig, toggleSettings, setMicDeviceId } from '../../store/uiSlice';
+import { getVADConfig, updateVADConfig, getNoiseConfig, updateNoiseConfig, toggleSettings, setMicDeviceId } from '../../store/uiSlice';
 import { store } from '../../store';
 
 export const SettingsModal = () => {
@@ -10,6 +10,9 @@ export const SettingsModal = () => {
   const vadConfig = useSelector((state) => state.ui.vadConfig);
   const vadConfigLoading = useSelector((state) => state.ui.vadConfigLoading);
   const vadConfigError = useSelector((state) => state.ui.vadConfigError);
+  const noiseConfig = useSelector((state) => state.ui.noiseConfig);
+  const noiseConfigLoading = useSelector((state) => state.ui.noiseConfigLoading);
+  const noiseConfigError = useSelector((state) => state.ui.noiseConfigError);
   const fileId = useSelector((state) => state.media.fileId);
   const isProcessing = useSelector((state) => state.media.isProcessing);
   const selectedMicDeviceId = useSelector((state) => state.ui.selectedMicDeviceId);
@@ -18,11 +21,21 @@ export const SettingsModal = () => {
   const [micPermissionState, setMicPermissionState] = useState('unknown'); // 'unknown' | 'granted' | 'denied'
   const [micPermissionError, setMicPermissionError] = useState(null);
 
-  // 本地表单状态 - 只保留 example 中使用的 3 个参数
+  // 本地表单状态 - VAD 参数
   const [formData, setFormData] = useState({
     min_silence_duration_ms: 500,
     max_speech_duration_s: 30,
     sample_rate: 16000,
+  });
+
+  // 降噪参数表单状态
+  const [noiseFormData, setNoiseFormData] = useState({
+    enabled: true,
+    lowcut: 200,
+    highcut: 3500,
+    order: 4,
+    filter_type: 'bandpass',
+    normalize_after_filter: true,
   });
 
   // 当配置加载时更新表单
@@ -36,12 +49,29 @@ export const SettingsModal = () => {
     }
   }, [vadConfig]);
 
+  // 当降噪配置加载时更新表单
+  useEffect(() => {
+    if (noiseConfig) {
+      setNoiseFormData({
+        enabled: noiseConfig.enabled ?? true,
+        lowcut: noiseConfig.lowcut || 200,
+        highcut: noiseConfig.highcut || 3500,
+        order: noiseConfig.order || 4,
+        filter_type: noiseConfig.filter_type || 'bandpass',
+        normalize_after_filter: noiseConfig.normalize_after_filter ?? true,
+      });
+    }
+  }, [noiseConfig]);
+
   // 打开设置时加载配置
   useEffect(() => {
     if (showSettings && !vadConfig) {
       dispatch(getVADConfig());
     }
-  }, [showSettings, vadConfig, dispatch]);
+    if (showSettings && !noiseConfig) {
+      dispatch(getNoiseConfig());
+    }
+  }, [showSettings, vadConfig, noiseConfig, dispatch]);
 
   // 枚举录音设备 + 监听热插拔
   const loadAudioInputs = useCallback(async () => {
@@ -91,39 +121,66 @@ export const SettingsModal = () => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleNoiseInputChange = (field, value) => {
+    setNoiseFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
   const handleSave = async () => {
-    // 只发送修改过的字段
-    const updates = {};
+    // VAD 配置更新
+    const vadUpdates = {};
     Object.keys(formData).forEach((key) => {
       if (vadConfig && formData[key] !== vadConfig[key]) {
-        updates[key] = formData[key];
+        vadUpdates[key] = formData[key];
       }
     });
 
-    if (Object.keys(updates).length === 0) {
+    // 降噪配置更新
+    const noiseUpdates = {};
+    Object.keys(noiseFormData).forEach((key) => {
+      if (noiseConfig && noiseFormData[key] !== noiseConfig[key]) {
+        noiseUpdates[key] = noiseFormData[key];
+      }
+    });
+
+    if (Object.keys(vadUpdates).length === 0 && Object.keys(noiseUpdates).length === 0) {
       dispatch(toggleSettings());
       return;
     }
 
     try {
-      const result = await dispatch(updateVADConfig(updates)).unwrap();
+      // 并发更新 VAD 和降噪配置
+      const promises = [];
+      if (Object.keys(vadUpdates).length > 0) {
+        promises.push(dispatch(updateVADConfig(vadUpdates)).unwrap());
+      }
+      if (Object.keys(noiseUpdates).length > 0) {
+        promises.push(dispatch(updateNoiseConfig(noiseUpdates)).unwrap());
+      }
+
+      await Promise.all(promises);
 
       // 保存成功后关闭设置模态框
-      if (result) {
-        dispatch(toggleSettings());
-      }
+      dispatch(toggleSettings());
     } catch (error) {
       // 保存失败，保持模态框打开让用户看到错误
-      console.error('Failed to save VAD config:', error);
+      console.error('Failed to save config:', error);
     }
   };
 
   const handleReset = async () => {
-    // 重置为 example 中的默认值
+    // 重置为默认值
     setFormData({
       min_silence_duration_ms: 500,
       max_speech_duration_s: 30,
       sample_rate: 16000,
+    });
+    setNoiseFormData({
+      enabled: true,
+      lowcut: 200,
+      highcut: 3500,
+      order: 4,
+      filter_type: 'bandpass',
+      normalize_after_filter: true,
     });
   };
 
@@ -190,6 +247,150 @@ export const SettingsModal = () => {
           </div>
 
           {/* 分隔 */}
+          <div className="border-t border-bg-card" />
+
+          {/* 降噪参数 */}
+          <div className="text-sm font-semibold text-text-primary">降噪参数</div>
+
+          {noiseConfigLoading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="spinner w-6 h-6 border-2 border-primary border-t-transparent" />
+            </div>
+          )}
+
+          {noiseConfigError && (
+            <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-error text-sm">
+              {noiseConfigError}
+            </div>
+          )}
+
+          {!noiseConfigLoading && noiseConfig && (
+            <>
+              {/* 启用降噪 */}
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-text-secondary">启用降噪</label>
+                <button
+                  type="button"
+                  onClick={() => handleNoiseInputChange('enabled', !noiseFormData.enabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    noiseFormData.enabled ? 'bg-primary' : 'bg-bg-card'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      noiseFormData.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* 滤波器类型 */}
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-text-secondary">滤波器类型</label>
+                <select
+                  value={noiseFormData.filter_type}
+                  onChange={(e) => handleNoiseInputChange('filter_type', e.target.value)}
+                  className="input px-3 py-1 text-sm w-32"
+                >
+                  <option value="bandpass">带通</option>
+                  <option value="highpass">高通</option>
+                  <option value="lowpass">低通</option>
+                </select>
+              </div>
+
+              {/* 低频截止 */}
+              {noiseFormData.filter_type !== 'lowpass' && (
+                <div className="space-y-2">
+                  <label className="text-sm text-text-secondary">
+                    低频截止: {noiseFormData.lowcut} Hz
+                    <span className="text-xs text-text-tertiary ml-2">
+                      (切除风扇、空调等低频噪音)
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min="50"
+                    max="500"
+                    step="10"
+                    value={noiseFormData.lowcut}
+                    onChange={(e) => handleNoiseInputChange('lowcut', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              {/* 高频截止 */}
+              {noiseFormData.filter_type !== 'highpass' && (
+                <div className="space-y-2">
+                  <label className="text-sm text-text-secondary">
+                    高频截止: {noiseFormData.highcut} Hz
+                    <span className="text-xs text-text-tertiary ml-2">
+                      (切除电流声、电子杂音等高频噪音)
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min="2000"
+                    max="8000"
+                    step="100"
+                    value={noiseFormData.highcut}
+                    onChange={(e) => handleNoiseInputChange('highcut', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              {/* 滤波器阶数 */}
+              <div className="space-y-2">
+                <label className="text-sm text-text-secondary">
+                  滤波器阶数: {noiseFormData.order}
+                  <span className="text-xs text-text-tertiary ml-2">
+                    (值越大滤波越陡峭，4-6为常用值)
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="8"
+                  step="1"
+                  value={noiseFormData.order}
+                  onChange={(e) => handleNoiseInputChange('order', parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              {/* 滤波后归一化 */}
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-text-secondary">滤波后归一化</label>
+                <button
+                  type="button"
+                  onClick={() => handleNoiseInputChange('normalize_after_filter', !noiseFormData.normalize_after_filter)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    noiseFormData.normalize_after_filter ? 'bg-primary' : 'bg-bg-card'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      noiseFormData.normalize_after_filter ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* 提示信息 */}
+              <div className="p-4 bg-bg-card rounded-lg text-xs text-text-tertiary">
+                <div className="font-medium mb-2">默认值:</div>
+                <div>• 启用: 是</div>
+                <div>• 滤波器类型: 带通</div>
+                <div>• 低频截止: 200 Hz</div>
+                <div>• 高频截止: 3500 Hz</div>
+                <div>• 滤波器阶数: 4</div>
+                <div>• 滤波后归一化: 是</div>
+                <div className="mt-2 text-primary">💡 人声频率范围约 300-3400Hz</div>
+              </div>
+            </>
+          )}
+
           <div className="border-t border-bg-card" />
 
           <div className="text-sm font-semibold text-text-primary">VAD 参数</div>
@@ -290,10 +491,10 @@ export const SettingsModal = () => {
             </button>
             <button
               onClick={handleSave}
-              disabled={vadConfigLoading || isProcessing}
+              disabled={(vadConfigLoading || noiseConfigLoading) || isProcessing}
               className="btn-primary px-4 py-2 text-sm"
             >
-              {vadConfigLoading || isProcessing ? '保存中...' : '保存并刷新字幕'}
+              {(vadConfigLoading || noiseConfigLoading || isProcessing) ? '保存中...' : '保存并刷新字幕'}
             </button>
           </div>
         </div>
