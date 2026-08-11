@@ -11,6 +11,12 @@ export const SubtitlePanel = () => {
   );
   const searchQuery = useSelector((state) => state.subtitle.searchQuery);
   const isSeeking = useSelector((state) => state.player.isSeeking);
+  const isDetached = useSelector((state) => state.player.isDetached);
+
+  // MSG_TYPES should match the one defined in App.jsx
+  const MSG_TYPES = window.playerMsgTypes || {
+    SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+  };
 
   const subtitleListRef = useRef(null);
   const subtitleRefs = useRef([]);
@@ -22,9 +28,23 @@ export const SubtitlePanel = () => {
   };
 
   const handleSubtitleClick = (index) => {
+    const subtitle = subtitles[index];
+    if (!subtitle) return;
+
     // Optimistically highlight the clicked subtitle
     dispatch(setCurrentSubtitleIndex(index));
-    // Request the video to seek via redux state
+
+    // If player is detached, send message to player window
+    if (isDetached && window.playerWindowChannel) {
+      const message = {
+        type: MSG_TYPES.SEEK_TO_SUBTITLE,
+        payload: { start: subtitle.start, end: subtitle.end },
+      };
+      window.playerWindowChannel.postMessage(message);
+      return;
+    }
+
+    // Otherwise, request the video to seek via redux state
     dispatch(requestSeekToSubtitle(index));
   };
 

@@ -14,6 +14,7 @@ const initialState = {
   isMuted: false,
   isSeeking: false,       // True while user is dragging the progress bar
   playbackRate: 1.0,      // Playback speed multiplier (0.5 / 0.75 / 1.0 / 1.25)
+  isDetached: false,      // Whether the video player is detached to a separate window
 };
 
 const playerSlice = createSlice({
@@ -72,6 +73,12 @@ const playerSlice = createSlice({
         state.playbackRate = rate;
       }
     },
+    detachPlayer: (state) => {
+      state.isDetached = true;
+    },
+    attachPlayer: (state) => {
+      state.isDetached = false;
+    },
   },
 });
 
@@ -91,6 +98,8 @@ export const {
   toggleMute,
   setSeeking,
   setPlaybackRate,
+  detachPlayer,
+  attachPlayer,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

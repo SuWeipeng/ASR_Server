@@ -10,9 +10,21 @@ import { uploadFile } from './store/mediaSlice';
 import { generateSubtitles, loadCachedSubtitles, setCurrentSubtitleIndex } from './store/subtitleSlice';
 import { getSystemStatus } from './store/uiSlice';
 import { setError as setUIError } from './store/uiSlice';
+import { attachPlayer, setPlaying, setVolume, setMuted, setCurrentTime } from './store/playerSlice';
 import { store } from './store';
 import { transcriptionService } from './services/transcriptionService';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+
+const MSG_TYPES = {
+  SYNC_STATE: 'SYNC_STATE',
+  WINDOW_READY: 'WINDOW_READY',
+  WINDOW_CLOSED: 'WINDOW_CLOSED',
+  STATE_UPDATE: 'STATE_UPDATE',
+  SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+};
+
+// Export for use in other components
+window.playerMsgTypes = MSG_TYPES;
 
 function App() {
   const dispatch = useDispatch();
@@ -35,6 +47,7 @@ function App() {
   const isProcessing = useSelector((state) => state.media.isProcessing);
   const uiError = useSelector((state) => state.ui.error);
   const theme = useSelector((state) => state.ui.theme);
+  const isDetached = useSelector((state) => state.player.isDetached);
 
   // Initialize system with polling for model loading
   useEffect(() => {
@@ -103,6 +116,76 @@ function App() {
     return () => window.removeEventListener('fileUpload', handleFileUpload);
   }, [dispatch]);
 
+  // Initialize BroadcastChannel for player window communication
+  useEffect(() => {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel('asr-player-sync');
+
+      // 保存 channel 引用供外部使用
+      window.playerWindowChannel = channel;
+
+      channel.onmessage = (event) => {
+        const { type, payload } = event.data;
+
+        switch (type) {
+          case MSG_TYPES.WINDOW_READY:
+            // 发送当前状态给弹窗
+            const state = store.getState();
+            channel.postMessage({
+              type: MSG_TYPES.SYNC_STATE,
+              payload: {
+                player: state.player,
+                subtitle: state.subtitle,
+                fileId: state.media.fileId,
+              },
+            });
+            break;
+
+          case MSG_TYPES.WINDOW_CLOSED:
+            // 弹窗关闭，恢复播放器显示
+            dispatch(attachPlayer());
+            break;
+
+          case MSG_TYPES.STATE_UPDATE:
+            // 弹窗更新了状态，同步回来
+            if (payload.player) {
+              const currentPlayer = store.getState().player;
+              const currentSubtitleState = store.getState().subtitle;
+
+              if (payload.player.isPlaying !== currentPlayer.isPlaying) {
+                dispatch(setPlaying(payload.player.isPlaying));
+              }
+              if (payload.player.currentTime !== currentPlayer.currentTime) {
+                dispatch(setCurrentTime(payload.player.currentTime));
+
+                // 同步字幕索引 - 找到当前时间对应的字幕
+                if (currentSubtitleState.subtitles && currentSubtitleState.subtitles.length > 0) {
+                  const newIndex = currentSubtitleState.subtitles.findIndex(
+                    (sub) => payload.player.currentTime >= sub.start && payload.player.currentTime < sub.end
+                  );
+                  if (newIndex !== -1 && newIndex !== currentSubtitleState.currentSubtitleIndex) {
+                    dispatch(setCurrentSubtitleIndex(newIndex));
+                  }
+                }
+              }
+              if (payload.player.volume !== currentPlayer.volume) {
+                dispatch(setVolume(payload.player.volume));
+              }
+              if (payload.player.isMuted !== currentPlayer.isMuted) {
+                dispatch(setMuted(payload.player.isMuted));
+              }
+            }
+            break;
+        }
+      };
+
+      return () => {
+        channel.close();
+        window.playerWindowChannel = null;
+      };
+    }
+  }, [dispatch]);
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
@@ -119,10 +202,12 @@ function App() {
             />
           )}
 
-          {/* Video player */}
-          <div className="flex-shrink-0">
-            <VideoPlayer ref={videoRef} />
-          </div>
+          {/* Video player - 仅在未分离时显示 */}
+          {!isDetached && (
+            <div className="flex-shrink-0">
+              <VideoPlayer ref={videoRef} />
+            </div>
+          )}
 
           {/* Practice card */}
           {fileId && <PracticeCard videoRef={videoRef} />}

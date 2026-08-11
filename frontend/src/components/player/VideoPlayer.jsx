@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, ExternalLink } from 'lucide-react';
 import { setPlaying, setVolume, setMuted, togglePlay, setSeeking, setCurrentTime, setIntentTime, setSingleSentenceMode } from '../../store/playerSlice';
 import { setCurrentSubtitleIndex, clearSeekRequest } from '../../store/subtitleSlice';
 import { formatTime, getPlaybackProgress } from '../../utils/timeFormat';
 import { usePlayerSync } from '../../hooks/usePlayerSync';
+import { usePlayerWindow } from '../../hooks/usePlayerWindow';
 import { mediaService } from '../../services/mediaService';
 
 export const VideoPlayer = forwardRef((props, ref) => {
@@ -39,6 +40,9 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const seekRequest = useSelector((state) => state.subtitle.seekRequest);
 
   const [progress, setProgress] = useState(0);
+
+  // Player window management
+  const { isDetached, openPlayerWindow } = usePlayerWindow();
 
   // Refs that mirror Redux state so drag handlers can read latest values
   // without re-creating the listeners on every dispatch.
@@ -225,6 +229,18 @@ export const VideoPlayer = forwardRef((props, ref) => {
 
   return (
     <div ref={containerRef} className="bg-bg-secondary rounded-lg overflow-hidden">
+      {/* Header with open window button */}
+      <div className="h-8 bg-bg-tertiary flex items-center justify-end px-3">
+        <button
+          onClick={openPlayerWindow}
+          className="flex items-center space-x-2 px-3 py-1.5 text-xs bg-bg-card hover:bg-bg-primary text-text-primary rounded-md transition-colors"
+          title="打开独立窗口"
+        >
+          <ExternalLink size={14} />
+          <span>打开独立窗口</span>
+        </button>
+      </div>
+
       {/* Video element */}
       <div className="relative aspect-video bg-black group">
         <video

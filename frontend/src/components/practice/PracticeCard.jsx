@@ -9,6 +9,11 @@ import { WaveformDisplay } from './WaveformDisplay';
 import { UserRecordingWaveform } from './UserRecordingWaveform';
 import { requestSeekToSubtitle } from '../../store/subtitleSlice';
 
+// MSG_TYPES should match the one defined in App.jsx
+const MSG_TYPES = window.playerMsgTypes || {
+  SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+};
+
 export const PracticeCard = ({ videoRef }) => {
   const dispatch = useDispatch();
   const fileId = useSelector((state) => state.media.fileId);
@@ -17,6 +22,7 @@ export const PracticeCard = ({ videoRef }) => {
   );
   const { isRecording, lastScore, diffResult, isProcessing, audioUrl, audioDuration } =
     useSelector((state) => state.practice);
+  const isDetached = useSelector((state) => state.player.isDetached);
 
   const {
     isRecording: recorderRecording,
@@ -123,6 +129,19 @@ export const PracticeCard = ({ videoRef }) => {
   // Handle click on current sentence to play it
   const handleCurrentSentenceClick = () => {
     if (currentSubtitleIndex >= 0) {
+      const subtitle = subtitles[currentSubtitleIndex];
+      if (!subtitle) return;
+
+      // If player is detached, send message to player window
+      if (isDetached && window.playerWindowChannel) {
+        window.playerWindowChannel.postMessage({
+          type: MSG_TYPES.SEEK_TO_SUBTITLE,
+          payload: { start: subtitle.start, end: subtitle.end },
+        });
+        return;
+      }
+
+      // Otherwise, request the video to seek via redux state
       dispatch(requestSeekToSubtitle(currentSubtitleIndex));
     }
   };
