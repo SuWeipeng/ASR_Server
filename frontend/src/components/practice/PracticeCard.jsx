@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Mic, Send, Trash2 } from 'lucide-react';
+import { Mic, Send, Trash2, Play } from 'lucide-react';
 import { setRecording, setUserAudio, clearUserAudio, clearPractice, setAudioDuration } from '../../store/practiceSlice';
 import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
 import { HighlightText } from './HighlightText';
 import { WaveformDisplay } from './WaveformDisplay';
 import { UserRecordingWaveform } from './UserRecordingWaveform';
+import { requestSeekToSubtitle } from '../../store/subtitleSlice';
 
 export const PracticeCard = ({ videoRef }) => {
   const dispatch = useDispatch();
@@ -119,6 +120,13 @@ export const PracticeCard = ({ videoRef }) => {
     dispatch(setAudioDuration(e.target.duration));
   };
 
+  // Handle click on current sentence to play it
+  const handleCurrentSentenceClick = () => {
+    if (currentSubtitleIndex >= 0) {
+      dispatch(requestSeekToSubtitle(currentSubtitleIndex));
+    }
+  };
+
   if (!currentSentence) {
     return (
       <div className="card">
@@ -130,9 +138,14 @@ export const PracticeCard = ({ videoRef }) => {
   return (
     <div className="space-y-4">
       {/* Current sentence with highlight and waveform */}
-      <div className="card relative overflow-hidden">
-        <h3 className="text-lg font-semibold mb-2 text-text-primary">
-          当前练习句
+      <div
+        className="card relative overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
+        onClick={handleCurrentSentenceClick}
+        title="点击播放当前练习句"
+      >
+        <h3 className="text-lg font-semibold mb-2 text-text-primary flex items-center gap-2">
+          <span>当前练习句</span>
+          <Play size={16} className="text-text-secondary" />
         </h3>
 
         {/* Waveform background */}
