@@ -28,6 +28,42 @@
   }
 }
 
+/* Dark mode color overrides */
+@layer utilities {
+  /* Background colors in dark mode */
+  .dark .bg-bg-primary {
+    background-color: #0F172A !important;
+  }
+  .dark .bg-bg-secondary {
+    background-color: #1E293B !important;
+  }
+  .dark .bg-bg-card {
+    background-color: #334155 !important;
+  }
+  .dark .border-bg-card {
+    border-color: #334155 !important;
+  }
+
+  /* Text colors in dark mode */
+  .dark .text-text-primary {
+    color: #F8FAFC !important;
+  }
+  .dark .text-text-secondary {
+    color: #94A3B8 !important;
+  }
+
+  /* Scrollbar colors in dark mode */
+  .dark .scrollbar-thin::-webkit-scrollbar-track {
+    background-color: #1E293B !important;
+  }
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #334155 !important;
+  }
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #94A3B8 !important;
+  }
+}
+
 /* Custom base styles */
 @layer base {
   html, body {

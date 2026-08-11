@@ -8,21 +8,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Dark mode colors (default)
+        // Primary colors (same for both modes)
         primary: {
           DEFAULT: '#6366F1', // Indigo 500
           hover: '#4F46E5',   // Indigo 600
         },
+        // Light mode colors (default)
         bg: {
-          primary: '#0F172A',     // Slate 900
-          secondary: '#1E293B',   // Slate 800
-          card: '#334155',       // Slate 700
+          primary: '#FFFFFF',     // White
+          secondary: '#F1F5F9',   // Slate 100
+          card: '#E2E8F0',       // Slate 200
         },
         text: {
-          primary: '#F8FAFC',    // Slate 50
-          secondary: '#94A3B8',   // Slate 400
+          primary: '#1E293B',    // Slate 800
+          secondary: '#64748B',   // Slate 500
         },
-        // Semantic colors
+        // Semantic colors (same for both modes)
         success: '#22C55E',      // Green 500
         error: '#EF4444',        // Red 500
         warning: '#F59E0B',       // Amber 500
