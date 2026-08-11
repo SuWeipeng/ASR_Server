@@ -1,1 +1,6 @@
-*.json
+# 运行时生成的元数据文件
+media_metadata.json
+
+# 可选：保留用户的配置文件
+# vad_config.json
+# noise_config.json
