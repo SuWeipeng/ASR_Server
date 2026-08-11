@@ -5,7 +5,12 @@ import { detectPitch, smoothPitch } from '../../utils/audioAnalysis';
  * Analyze a recorded audio blob and render its amplitude waveform and
  * pitch curve, mirroring the style used for the reference sentence.
  */
-export const UserRecordingWaveform = ({ audioBlob, className = '' }) => {
+export const UserRecordingWaveform = ({
+  audioBlob,
+  currentTime = 0,
+  duration = 0,
+  className = ''
+}) => {
   const canvasRef = useRef(null);
   const [waveformData, setWaveformData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -129,7 +134,30 @@ export const UserRecordingWaveform = ({ audioBlob, className = '' }) => {
     if (showPitch && waveformData.pitch) {
       drawPitchCurve(ctx, waveformData.pitch, width, height);
     }
-  }, [waveformData, showAmplitude, showPitch]);
+
+    // Draw playback position indicator (progress line + triangle)
+    if (duration > 0 && currentTime >= 0) {
+      const progress = Math.min(1, Math.max(0, currentTime / duration));
+      const xPos = progress * width;
+
+      // Draw vertical line
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.moveTo(xPos, 0);
+      ctx.lineTo(xPos, height);
+      ctx.stroke();
+
+      // Draw triangle marker at top
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(239, 68, 68, 1)';
+      ctx.moveTo(xPos - 6, 0);
+      ctx.lineTo(xPos + 6, 0);
+      ctx.lineTo(xPos, 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }, [waveformData, showAmplitude, showPitch, currentTime, duration]);
 
   // Redraw on resize
   useEffect(() => {
@@ -154,12 +182,33 @@ export const UserRecordingWaveform = ({ audioBlob, className = '' }) => {
         if (showPitch && waveformData.pitch) {
           drawPitchCurve(ctx, waveformData.pitch, width, height);
         }
+
+        // Draw playback position indicator on resize
+        if (duration > 0 && currentTime >= 0) {
+          const progress = Math.min(1, Math.max(0, currentTime / duration));
+          const xPos = progress * width;
+
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.moveTo(xPos, 0);
+          ctx.lineTo(xPos, height);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.fillStyle = 'rgba(239, 68, 68, 1)';
+          ctx.moveTo(xPos - 6, 0);
+          ctx.lineTo(xPos + 6, 0);
+          ctx.lineTo(xPos, 8);
+          ctx.closePath();
+          ctx.fill();
+        }
       }
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [waveformData, showAmplitude, showPitch]);
+  }, [waveformData, showAmplitude, showPitch, currentTime, duration]);
 
   const drawAmplitudeWaveform = (ctx, amplitude, width, height) => {
     if (!amplitude || amplitude.length === 0) return;

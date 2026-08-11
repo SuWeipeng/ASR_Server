@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Mic, Send, Trash2 } from 'lucide-react';
-import { setRecording, setUserAudio, clearUserAudio, clearPractice } from '../../store/practiceSlice';
+import { setRecording, setUserAudio, clearUserAudio, clearPractice, setAudioDuration } from '../../store/practiceSlice';
 import { evaluateSpeech } from '../../store/practiceSlice';
 import { useMediaRecorder } from '../../hooks/useMediaRecorder';
 import { HighlightText } from './HighlightText';
@@ -14,7 +14,7 @@ export const PracticeCard = ({ videoRef }) => {
   const { currentSubtitleIndex, subtitles } = useSelector(
     (state) => state.subtitle
   );
-  const { isRecording, lastScore, diffResult, isProcessing, audioUrl } =
+  const { isRecording, lastScore, diffResult, isProcessing, audioUrl, audioDuration } =
     useSelector((state) => state.practice);
 
   const {
@@ -26,12 +26,23 @@ export const PracticeCard = ({ videoRef }) => {
   } = useMediaRecorder(useSelector((state) => state.ui.selectedMicDeviceId));
 
   const [recordingStartTime, setRecordingStartTime] = useState(null);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const audioRef = useRef(null);
 
   // Current sentence
   const currentSentence =
     currentSubtitleIndex >= 0 && subtitles[currentSubtitleIndex]
       ? subtitles[currentSubtitleIndex]
       : null;
+
+  // Clear previous results when sentence changes
+  useEffect(() => {
+    // Clear all previous practice data when switching to a different sentence
+    dispatch(clearPractice());
+    dispatch(clearUserAudio());
+    clearRecording();  // Also clear the audio blob from useMediaRecorder
+    setAudioCurrentTime(0);
+  }, [currentSentence?.id, dispatch]); // Use sentence ID as the key
 
   // Sync recording state (local recorder -> Redux)
   useEffect(() => {
@@ -40,6 +51,8 @@ export const PracticeCard = ({ videoRef }) => {
 
   // Start recording
   const handleStartRecording = async () => {
+    // Clear previous results before starting new recording
+    dispatch(clearPractice());
     try {
       setRecordingStartTime(Date.now());
       await startRecording();
@@ -79,18 +92,31 @@ export const PracticeCard = ({ videoRef }) => {
         })
       );
 
-      // Auto-evaluate
+      // Auto-evaluate (use the current sentence at recording time)
       dispatch(evaluateSpeech({ audioBlob, targetText: currentSentence?.text || '' }));
 
       return () => URL.revokeObjectURL(url);
     }
-  }, [audioBlob, dispatch, currentSentence?.text]);
+  }, [audioBlob, dispatch]); // Remove currentSentence?.text from dependencies
 
   // Clear recording
   const handleClearRecording = () => {
     clearRecording();
     dispatch(clearUserAudio());
     dispatch(clearPractice());
+    setAudioCurrentTime(0);  // Reset audio progress
+  };
+
+  // Handle audio time update for progress synchronization
+  const handleAudioTimeUpdate = () => {
+    if (audioRef.current) {
+      setAudioCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  // Handle audio loaded metadata to get duration
+  const handleAudioLoadedMetadata = (e) => {
+    dispatch(setAudioDuration(e.target.duration));
   };
 
   if (!currentSentence) {
@@ -178,8 +204,11 @@ export const PracticeCard = ({ videoRef }) => {
         {audioUrl && (
           <div className="mt-4">
             <audio
+              ref={audioRef}
               src={audioUrl}
               controls
+              onTimeUpdate={handleAudioTimeUpdate}
+              onLoadedMetadata={handleAudioLoadedMetadata}
               className="w-full"
               style={{ height: '40px' }}
             />
@@ -214,28 +243,63 @@ export const PracticeCard = ({ videoRef }) => {
             <div className="relative h-24 -mx-4 my-4">
               <UserRecordingWaveform
                 audioBlob={audioBlob}
+                currentTime={audioCurrentTime}
+                duration={audioDuration}
                 className="absolute inset-0"
               />
             </div>
           )}
 
-          {/* Diff display */}
+          {/* Diff display - original word-by-word with progress-based color change for spoken words */}
           {diffResult && diffResult.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-4">
-              {diffResult.map((word, index) => (
-                <span
-                  key={index}
-                  className={`px-2 py-1 rounded text-sm ${
-                    word.status === 'correct'
-                      ? 'bg-success/20 text-success'
-                      : word.status === 'missing'
-                      ? 'bg-error/20 text-error line-through'
-                      : 'bg-warning/20 text-warning underline'
-                  }`}
-                >
-                  {word.word}
-                </span>
-              ))}
+              {diffResult.map((word, index) => {
+                // Determine word color based on status and playback progress
+                let wordClass = 'px-2 py-1 rounded text-sm ';
+
+                if (word.status === 'missing') {
+                  // Missing words (user didn't say) - static red, no timestamp
+                  wordClass += 'bg-error/20 text-error line-through';
+                } else {
+                  // Calculate effective timestamps (with fallback for missing data)
+                  let wordStart = word.start;
+                  let wordEnd = word.end;
+
+                  // Estimate timestamp for last word if missing (ASR boundary issue)
+                  if (word.start === null || word.end === null) {
+                    // Find the previous word's end time
+                    const prevWord = index > 0 ? diffResult[index - 1] : null;
+                    const prevEnd = prevWord?.end ?? 0;
+
+                    // Estimate: start at previous word's end, end at audio duration
+                    wordStart = prevEnd;
+                    wordEnd = audioDuration || prevEnd + 1;  // +1 second as fallback
+                  }
+
+                  // Change color based on effective timestamps
+                  const isSpoken = audioCurrentTime >= wordEnd;
+                  const isSpeaking = audioCurrentTime >= wordStart && audioCurrentTime < wordEnd;
+
+                  if (isSpeaking) {
+                    wordClass += 'bg-primary text-white font-semibold'; // Currently speaking
+                  } else if (isSpoken) {
+                    wordClass += 'bg-primary/40 text-primary'; // Already spoken
+                  } else {
+                    // Not yet spoken - keep original status color
+                    if (word.status === 'correct') {
+                      wordClass += 'bg-success/20 text-success';
+                    } else { // extra
+                      wordClass += 'bg-warning/20 text-warning underline';
+                    }
+                  }
+                }
+
+                return (
+                  <span key={index} className={wordClass}>
+                    {word.word}
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>

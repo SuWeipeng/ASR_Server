@@ -46,7 +46,9 @@ async def evaluate_practice(
                 word=dw.word,
                 status=dw.status,
                 original_index=dw.original_index,
-                user_index=dw.user_index
+                user_index=dw.user_index,
+                start=getattr(dw, 'start', None),
+                end=getattr(dw, 'end', None)
             )
             for dw in result.diff_words
         ]

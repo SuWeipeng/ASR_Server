@@ -9,11 +9,13 @@ from app.utils.logger import logger
 class DiffWord:
     """Diff word representation"""
 
-    def __init__(self, word: str, status: str, original_index: int = None, user_index: int = None):
+    def __init__(self, word: str, status: str, original_index: int = None, user_index: int = None, start: float = None, end: float = None):
         self.word = word
         self.status = status  # 'correct', 'missing', 'extra', 'incorrect'
         self.original_index = original_index
         self.user_index = user_index
+        self.start = start  # Word start timestamp in seconds
+        self.end = end      # Word end timestamp in seconds
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -21,7 +23,9 @@ class DiffWord:
             "word": self.word,
             "status": self.status,
             "original_index": self.original_index,
-            "user_index": self.user_index
+            "user_index": self.user_index,
+            "start": self.start,
+            "end": self.end
         }
 
 

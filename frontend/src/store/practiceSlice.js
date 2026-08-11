@@ -21,6 +21,7 @@ const initialState = {
   diffResult: null,
   userAudioBlob: null,
   audioUrl: null,
+  audioDuration: 0,  // Duration for progress tracking
   error: null,
 };
 
@@ -49,9 +50,13 @@ const practiceSlice = createSlice({
       state.lastScore = null;
       state.diffResult = null;
       state.error = null;
+      state.isProcessing = false;  // Also clear processing state
     },
     clearError: (state) => {
       state.error = null;
+    },
+    setAudioDuration: (state, action) => {
+      state.audioDuration = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -68,7 +73,14 @@ const practiceSlice = createSlice({
           accuracy_level: action.payload.accuracy_level,
           user_transcript: action.payload.user_transcript,
         };
-        state.diffResult = action.payload.diff_words;
+        state.diffResult = action.payload.diff_words.map(dw => ({
+          word: dw.word,
+          status: dw.status,
+          original_index: dw.original_index,
+          user_index: dw.user_index,
+          start: dw.start,  // Word start timestamp for sync
+          end: dw.end       // Word end timestamp for sync
+        }));
         state.error = null;
       })
       .addCase(evaluateSpeech.rejected, (state, action) => {
@@ -85,6 +97,7 @@ export const {
   clearUserAudio,
   clearPractice,
   clearError,
+  setAudioDuration,
 } = practiceSlice.actions;
 
 export default practiceSlice.reducer;

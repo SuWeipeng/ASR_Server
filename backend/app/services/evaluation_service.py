@@ -64,17 +64,18 @@ class EvaluationService:
                 prepared_path = temp_audio_path.replace(".wav", ".prepared.wav")
                 save_audio(prepared_path, prepared_audio, 16000)
 
-                # Transcribe user audio
+                # Transcribe user audio (with timestamps for word-level sync)
                 user_transcription = asr_service.transcribe_file(
                     prepared_path,
                     language=language,
-                    generate_timestamps=False
+                    generate_timestamps=True
                 )
 
                 if not user_transcription:
                     raise ValueError("Failed to transcribe user audio")
 
                 user_text = user_transcription.get("text", "")
+                timestamps = user_transcription.get("timestamps", [])  # [(start, end, word), ...]
 
                 # Compare texts
                 comparison_result = compare_texts(target_text, user_text)
@@ -85,7 +86,26 @@ class EvaluationService:
                 # Get accuracy level
                 accuracy_level = get_accuracy_level(comparison_result["score"])
 
-                # Build evaluation result
+                # Build evaluation result with timestamp mapping
+                def map_timestamps_to_diff_words(diff_words_list, ts_list):
+                    """Map ASR timestamps to diff_words by user_index"""
+                    result = []
+                    for dw in diff_words_list:
+                        word_dict = dw.copy()
+                        # Attach timestamps for words that exist in user speech
+                        if (word_dict.get("user_index") is not None and
+                            ts_list and
+                            word_dict["user_index"] < len(ts_list)):
+                            start, end, _ = ts_list[word_dict["user_index"]]
+                            word_dict["start"] = start
+                            word_dict["end"] = end
+                        result.append(word_dict)
+                    return result
+
+                timestamped_diff_words = map_timestamps_to_diff_words(
+                    comparison_result["diff_words"], timestamps
+                )
+
                 evaluation = EvaluationResult(
                     score=comparison_result["score"],
                     accuracy_level=accuracy_level,
@@ -97,9 +117,18 @@ class EvaluationService:
                             "status": dw["status"],
                             "original_index": dw.get("original_index"),
                             "user_index": dw.get("user_index"),
-                            "to_dict": lambda: dw
+                            "start": dw.get("start"),
+                            "end": dw.get("end"),
+                            "to_dict": lambda: {
+                                "word": dw["word"],
+                                "status": dw["status"],
+                                "original_index": dw.get("original_index"),
+                                "user_index": dw.get("user_index"),
+                                "start": dw.get("start"),
+                                "end": dw.get("end")
+                            }
                         })()
-                        for dw in comparison_result["diff_words"]
+                        for dw in timestamped_diff_words
                     ],
                     correct_count=comparison_result["correct_count"],
                     total_count=comparison_result["total_count"],
