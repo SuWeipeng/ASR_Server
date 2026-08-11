@@ -295,7 +295,7 @@ class CacheService:
                         sf.write(temp_wav_path, denoised_audio, sr)
 
                         # Convert to MP3 using FFmpeg
-                        result = subprocess.run([
+                        ffmpeg_result = subprocess.run([
                             'ffmpeg', '-y', '-i', temp_wav_path,
                             '-b:a', '192k', str(audio_denoised_cache)
                         ], capture_output=True)
@@ -306,7 +306,7 @@ class CacheService:
                         except:
                             pass
 
-                        if result.returncode == 0:
+                        if ffmpeg_result.returncode == 0:
                             logger.info(f"Saved denoised audio to cache: {audio_denoised_cache}")
                         else:
                             logger.warning(f"FFmpeg conversion failed for denoised audio")
@@ -484,9 +484,21 @@ class CacheService:
 
     def _save_metadata(self, filename: str, file_size: int,
                        result: TranscriptionResult) -> None:
-        """Save cache metadata"""
+        """Save cache metadata, preserving existing file_ids and access_count if present"""
         cache_dir = self._get_cache_dir(filename, file_size)
         metadata_file = cache_dir / self.METADATA_FILE
+
+        # Try to preserve existing file_ids and access_count
+        existing_file_ids = []
+        existing_access_count = 0
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                    existing_file_ids = existing_data.get("file_ids", [])
+                    existing_access_count = existing_data.get("access_count", 0)
+            except Exception as e:
+                logger.warning(f"Failed to read existing metadata: {e}")
 
         metadata = {
             "original_filename": filename,
@@ -496,9 +508,9 @@ class CacheService:
             "processing_time": result.processing_time,
             "num_segments": len(result.segments),
             "detected_language": result.language,
-            "file_ids": [],
+            "file_ids": existing_file_ids,  # Preserve existing file_ids
             "last_accessed": datetime.now().isoformat(),
-            "access_count": 0
+            "access_count": existing_access_count  # Preserve existing access_count
         }
 
         with open(metadata_file, 'w', encoding='utf-8') as f:

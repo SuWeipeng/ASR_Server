@@ -79,7 +79,22 @@ class MediaService:
                     # Link the new context to existing cache
                     cache_service.link_file_id(filename_stem, file_size, existing_file_id)
                     return existing_file
-            logger.info(f"Cache exists but no valid file_id, creating new entry")
+            logger.info(f"Cache exists but no valid file_id, checking existing files")
+
+        # Even if cache doesn't exist (e.g., after force refresh), check if we have the same file
+        for existing_id, existing_file in self._files.items():
+            if (Path(existing_file.original_filename).stem == filename_stem and
+                existing_file.file_size == file_size):
+                logger.info(f"Found existing file with same name and size: {existing_id}")
+                # Re-initialize cache entry if it was deleted
+                cache_service.init_cache_entry(
+                    filename=filename_stem,
+                    file_size=file_size,
+                    file_id=existing_id,
+                    duration=existing_file.duration
+                )
+                logger.info(f"Returning existing file_id: {existing_id}")
+                return existing_file
 
         # Reset file pointer for potential reuse
         await file.seek(0)
