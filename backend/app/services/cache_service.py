@@ -96,6 +96,48 @@ class CacheService:
         cache_info = CacheFileInfo.check(cache_dir)
         return cache_info.is_complete
 
+    def init_cache_entry(self, filename: str, file_size: int, file_id: str,
+                        duration: Optional[float] = None) -> Path:
+        """
+        为新上传的文件初始化缓存条目及元数据。
+
+        在上传时立即创建 cache 目录和 metadata.json，
+        即使在转录运行之前也能进行重复检测。
+
+        Args:
+            filename: 原始文件名（不含扩展名）
+            file_size: 文件大小（字节）
+            file_id: 要链接到此缓存条目的 file_id
+            duration: 可选的音频/视频时长（秒）
+
+        Returns:
+            创建的缓存目录路径
+        """
+        cache_dir = self._get_cache_dir(filename, file_size)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata_file = cache_dir / self.METADATA_FILE
+
+        # 创建初始元数据
+        metadata = {
+            "original_filename": filename,
+            "file_size": file_size,
+            "cached_at": datetime.now().isoformat(),
+            "duration": duration or 0.0,
+            "processing_time": 0.0,
+            "num_segments": 0,
+            "detected_language": None,
+            "file_ids": [file_id],  # 立即链接 file_id
+            "last_accessed": datetime.now().isoformat(),
+            "access_count": 0
+        }
+
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"初始化缓存条目: {cache_dir.name}，file_id: {file_id}")
+        return cache_dir
+
     def load_transcription(self, filename: str, file_size: int) -> Optional[TranscriptionResult]:
         """
         Load transcription result from cache

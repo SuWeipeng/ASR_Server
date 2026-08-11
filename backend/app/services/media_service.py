@@ -127,6 +127,14 @@ class MediaService:
             # 保存元数据到文件
             self._save_metadata()
 
+            # 为重复检测初始化缓存条目
+            cache_service.init_cache_entry(
+                filename=filename_stem,
+                file_size=file_size,
+                file_id=file_id,
+                duration=media_file.duration
+            )
+
             logger.info(f"File uploaded successfully: {file_id}")
             return media_file
 
