@@ -50,7 +50,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       // Previous sentence
       if (isShortcutMatch(event, SHORTCUTS.PREVIOUS_SENTENCE)) {
         event.preventDefault();
-        if (mediaRef?.current && currentSubtitleIndex > 0) {
+        if (currentSubtitleIndex > 0) {
           onSeekToSubtitle(currentSubtitleIndex - 1);
         }
       }
@@ -58,7 +58,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       // Next sentence
       if (isShortcutMatch(event, SHORTCUTS.NEXT_SENTENCE)) {
         event.preventDefault();
-        if (mediaRef?.current && currentSubtitleIndex < subtitles.length - 1) {
+        if (currentSubtitleIndex < subtitles.length - 1) {
           onSeekToSubtitle(currentSubtitleIndex + 1);
         }
       }
@@ -66,7 +66,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       // Replay current sentence
       if (isShortcutMatch(event, SHORTCUTS.REPLAY_CURRENT)) {
         event.preventDefault();
-        if (mediaRef?.current && currentSubtitleIndex >= 0) {
+        if (currentSubtitleIndex >= 0) {
           onSeekToSubtitle(currentSubtitleIndex);
         }
       }

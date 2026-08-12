@@ -32,16 +32,28 @@ window.playerMsgTypes = MSG_TYPES;
 function App() {
   const dispatch = useDispatch();
   const videoRef = useRef(null);
+  const isDetached = useSelector((state) => state.player.isDetached);
 
   const handleSeekToSubtitle = useCallback((index) => {
     const state = store.getState();
     const subtitles = state.subtitle.subtitles;
     const target = subtitles[index];
-    if (target && videoRef.current) {
-      videoRef.current.currentTime = target.start;
+    if (target) {
+      // 更新字幕索引
       dispatch(setCurrentSubtitleIndex(index));
+
+      // 如果播放器已弹出，通过 BroadcastChannel 通知播放窗口跳转
+      if (isDetached && window.playerWindowChannel) {
+        window.playerWindowChannel.postMessage({
+          type: MSG_TYPES.SEEK_TO_SUBTITLE,
+          payload: { start: target.start, end: target.end },
+        });
+      } else if (videoRef.current) {
+        // 否则直接操作主窗口的视频元素
+        videoRef.current.currentTime = target.start;
+      }
     }
-  }, [dispatch]);
+  }, [dispatch, isDetached]);
 
   useKeyboardShortcuts(videoRef, handleSeekToSubtitle);
 
@@ -50,7 +62,6 @@ function App() {
   const isProcessing = useSelector((state) => state.media.isProcessing);
   const uiError = useSelector((state) => state.ui.error);
   const theme = useSelector((state) => state.ui.theme);
-  const isDetached = useSelector((state) => state.player.isDetached);
 
   // Initialize system with polling for model loading
   useEffect(() => {
