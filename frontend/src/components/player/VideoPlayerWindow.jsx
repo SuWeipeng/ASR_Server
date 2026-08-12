@@ -3,6 +3,7 @@ import { Play, Pause, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
 import { formatTime, getPlaybackProgress } from '../../utils/timeFormat';
 import { MSG_TYPES } from '../../hooks/usePlayerWindow';
 import { mediaService } from '../../services/mediaService';
+import { SHORTCUTS, isShortcutMatch } from '../../utils/shortcuts';
 
 export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, onStateUpdate, onClose }) {
   const videoRef = useRef(null);
@@ -21,6 +22,9 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
   const [fileId, setFileId] = useState(initialState?.fileId || null);
   const [singleSentenceMode, setSingleSentenceMode] = useState(false);
   const [singleSentenceEnd, setSingleSentenceEnd] = useState(null);
+  const [subtitles, setSubtitles] = useState(initialState?.subtitle?.subtitles || []);
+  const [currentSubtitleIndex, setCurrentSubtitleIndex] = useState(initialState?.subtitle?.currentSubtitleIndex || 0);
+  const [isRecordingLocal, setIsRecordingLocal] = useState(false);
 
   // Refs for drag handlers
   const durationRef = useRef(duration);
@@ -141,10 +145,9 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
   }, [isPlaying, volume, isMuted, currentTime, notifyStateChange]);
 
   // Handle play/pause
-  const togglePlayback = () => {
-    const newState = !isPlaying;
-    setIsPlaying(newState);
-  };
+  const togglePlayback = useCallback(() => {
+    setIsPlaying(prevPlaying => !prevPlaying);
+  }, []);
 
   // Compute seek time from pointer position
   const computeTimeFromEvent = useCallback((clientX) => {
@@ -221,6 +224,107 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
       videoRef.current.muted = newState;
     }
   };
+
+  // Handle subtitle jump (for keyboard shortcuts)
+  const handleSubtitleJump = useCallback((index) => {
+    const target = subtitles[index];
+    if (target && videoRef.current) {
+      videoRef.current.currentTime = target.start;
+      setCurrentTime(target.start);
+      setCurrentSubtitleIndex(index);
+
+      // 启用单句播放模式
+      setSingleSentenceMode(true);
+      setSingleSentenceEnd(target.end);
+
+      // 开始播放
+      setIsPlaying(true);
+
+      // 通知主窗口更新当前字幕索引
+      if (onStateUpdate) {
+        onStateUpdate({
+          isPlaying: true,
+          currentTime: target.start,
+          duration,
+          volume,
+          isMuted,
+        });
+      }
+    }
+  }, [subtitles, duration, volume, isMuted, onStateUpdate]);
+
+  // Keyboard shortcuts handler
+  const handleKeyDown = useCallback((event) => {
+    // 忽略输入框中的按键
+    if (
+      event.target.tagName === 'INPUT' ||
+      event.target.tagName === 'TEXTAREA' ||
+      event.target.isContentEditable
+    ) {
+      return;
+    }
+
+    // A - 上一句
+    if (isShortcutMatch(event, SHORTCUTS.PREVIOUS_SENTENCE)) {
+      event.preventDefault();
+      if (currentSubtitleIndex > 0) {
+        handleSubtitleJump(currentSubtitleIndex - 1);
+      }
+    }
+
+    // D - 下一句
+    if (isShortcutMatch(event, SHORTCUTS.NEXT_SENTENCE)) {
+      event.preventDefault();
+      if (currentSubtitleIndex < subtitles.length - 1) {
+        handleSubtitleJump(currentSubtitleIndex + 1);
+      }
+    }
+
+    // R - 重播当前句
+    if (isShortcutMatch(event, SHORTCUTS.REPLAY_CURRENT)) {
+      event.preventDefault();
+      if (currentSubtitleIndex >= 0) {
+        handleSubtitleJump(currentSubtitleIndex);
+      }
+    }
+
+    // Space - 播放/暂停
+    if (event.code === 'Space' || event.key === ' ') {
+      event.preventDefault();
+      togglePlayback();
+    }
+
+    // L - 按住录音
+    if (isShortcutMatch(event, SHORTCUTS.START_RECORDING)) {
+      if (!event.repeat && !isRecordingLocal) {
+        event.preventDefault();
+        setIsRecordingLocal(true);
+        if (onStateUpdate) {
+          onStateUpdate({ type: MSG_TYPES.RECORDING_START });
+        }
+      }
+    }
+  }, [currentSubtitleIndex, subtitles.length, handleSubtitleJump, togglePlayback, isRecordingLocal, onStateUpdate]);
+
+  // Keyboard keyup handler (for recording release)
+  const handleKeyUp = useCallback((event) => {
+    if (isShortcutMatch(event, SHORTCUTS.START_RECORDING) && isRecordingLocal) {
+      setIsRecordingLocal(false);
+      if (onStateUpdate) {
+        onStateUpdate({ type: MSG_TYPES.RECORDING_STOP });
+      }
+    }
+  }, [isRecordingLocal, onStateUpdate]);
+
+  // Register keyboard shortcuts
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp]);
 
   if (!fileId) {
     return (

@@ -8,6 +8,8 @@ const MSG_TYPES = {
   WINDOW_CLOSED: 'WINDOW_CLOSED',
   STATE_UPDATE: 'STATE_UPDATE',
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+  RECORDING_START: 'RECORDING_START',
+  RECORDING_STOP: 'RECORDING_STOP',
 };
 
 function PlayerWindowApp() {
@@ -70,10 +72,19 @@ function PlayerWindowApp() {
   // Handle state update back to main window
   const handleStateUpdate = useCallback((state) => {
     if (channelRef.current) {
-      channelRef.current.postMessage({
-        type: MSG_TYPES.STATE_UPDATE,
-        payload: { player: state },
-      });
+      // 如果是录音消息，直接转发
+      if (state.type === MSG_TYPES.RECORDING_START ||
+          state.type === MSG_TYPES.RECORDING_STOP) {
+        channelRef.current.postMessage({
+          type: state.type,
+        });
+      } else {
+        // 普通状态更新
+        channelRef.current.postMessage({
+          type: MSG_TYPES.STATE_UPDATE,
+          payload: { player: state },
+        });
+      }
     }
   }, []);
 

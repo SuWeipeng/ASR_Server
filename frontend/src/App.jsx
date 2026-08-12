@@ -8,6 +8,7 @@ import { ErrorMessage } from './components/common/ErrorMessage';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { uploadFile } from './store/mediaSlice';
 import { generateSubtitles, loadCachedSubtitles, setCurrentSubtitleIndex } from './store/subtitleSlice';
+import { setRecording } from './store/practiceSlice';
 import { getSystemStatus } from './store/uiSlice';
 import { setError as setUIError } from './store/uiSlice';
 import { attachPlayer, setPlaying, setVolume, setMuted, setCurrentTime } from './store/playerSlice';
@@ -21,6 +22,8 @@ const MSG_TYPES = {
   WINDOW_CLOSED: 'WINDOW_CLOSED',
   STATE_UPDATE: 'STATE_UPDATE',
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+  RECORDING_START: 'RECORDING_START',
+  RECORDING_STOP: 'RECORDING_STOP',
 };
 
 // Export for use in other components
@@ -175,6 +178,14 @@ function App() {
                 dispatch(setMuted(payload.player.isMuted));
               }
             }
+            break;
+
+          case MSG_TYPES.RECORDING_START:
+            dispatch(setRecording(true));
+            break;
+
+          case MSG_TYPES.RECORDING_STOP:
+            dispatch(setRecording(false));
             break;
         }
       };
