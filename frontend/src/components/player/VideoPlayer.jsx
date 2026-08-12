@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Play, Pause, Volume2, VolumeX, ExternalLink } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, ExternalLink, Upload } from 'lucide-react';
 import { setPlaying, setVolume, setMuted, togglePlay, setSeeking, setCurrentTime, setIntentTime, setSingleSentenceMode } from '../../store/playerSlice';
 import { setCurrentSubtitleIndex, clearSeekRequest } from '../../store/subtitleSlice';
 import { formatTime, getPlaybackProgress } from '../../utils/timeFormat';
@@ -40,6 +40,11 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const seekRequest = useSelector((state) => state.subtitle.seekRequest);
 
   const [progress, setProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Model status check for drag upload
+  const systemStatus = useSelector((state) => state.ui.systemStatus);
+  const isModelReady = systemStatus?.model_loaded;
 
   // Player window management
   const { isDetached, openPlayerWindow } = usePlayerWindow();
@@ -197,6 +202,64 @@ export const VideoPlayer = forwardRef((props, ref) => {
     }
   };
 
+  // Validate media file type
+  const validateMediaFile = (file) => {
+    const validTypes = ['video/', 'audio/'];
+    const isValidType = validTypes.some(type => file.type.startsWith(type));
+    const validExtensions = ['.mp4', '.webm', '.ogg', '.mp3', '.wav', '.m4a', '.aac', '.mkv', '.avi', '.mov', '.flv'];
+    const hasValidExtension = validExtensions.some(ext =>
+      file.name.toLowerCase().endsWith(ext)
+    );
+    return isValidType || hasValidExtension;
+  };
+
+  // Handle drag over
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isModelReady) {
+      setIsDragging(true);
+    }
+  }, [isModelReady]);
+
+  // Handle drag leave
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Ensure we're really leaving the drop zone
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  // Handle file drop
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    // Check if model is ready
+    if (!isModelReady) {
+      return;
+    }
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    // Validate file type
+    if (!validateMediaFile(file)) {
+      return;
+    }
+
+    // Trigger file upload event (same as Header button)
+    window.dispatchEvent(new CustomEvent('fileUpload', { detail: file }));
+  }, [isModelReady]);
+
   // Sync play state with video
   // Only depends on isPlaying - let video element be the source of truth during playback
   useEffect(() => {
@@ -219,8 +282,31 @@ export const VideoPlayer = forwardRef((props, ref) => {
 
   if (!fileId) {
     return (
-      <div className="flex items-center justify-center h-64 bg-bg-secondary border border-bg-card rounded-lg">
-        <p className="text-text-secondary">请先上传音视频文件</p>
+      <div
+        className={`flex flex-col items-center justify-center h-64 bg-bg-secondary border-2 rounded-lg transition-all ${
+          isDragging && isModelReady
+            ? 'border-primary bg-primary/10 scale-[1.02]'
+            : isModelReady
+            ? 'border-dashed border-bg-card hover:border-primary/50 cursor-pointer'
+            : 'border-bg-card opacity-50 cursor-not-allowed'
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        title={!isModelReady ? '模型加载中，请稍后...' : '拖拽音视频文件到此处'}
+      >
+        <Upload
+          size={48}
+          className={`mb-3 ${isModelReady ? 'text-primary' : 'text-text-secondary'}`}
+        />
+        <p className={`text-lg ${isModelReady ? 'text-text-primary' : 'text-text-secondary'}`}>
+          {!isModelReady ? '模型加载中...' : '请先上传音视频文件'}
+        </p>
+        {isModelReady && (
+          <p className="text-sm text-text-secondary mt-2">
+            拖拽文件到此处或点击上方"打开文件"按钮
+          </p>
+        )}
       </div>
     );
   }
