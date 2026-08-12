@@ -25,6 +25,7 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
   const [subtitles, setSubtitles] = useState(initialState?.subtitle?.subtitles || []);
   const [currentSubtitleIndex, setCurrentSubtitleIndex] = useState(initialState?.subtitle?.currentSubtitleIndex || 0);
   const [isRecordingLocal, setIsRecordingLocal] = useState(false);
+  const [isVideoReady, setIsVideoReady] = useState(false);
 
   // Refs for drag handlers
   const durationRef = useRef(duration);
@@ -38,14 +39,20 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
   // Sync state from main window
   useEffect(() => {
     if (initialState) {
-      setIsPlaying(initialState.player?.isPlaying ?? isPlaying);
-      setCurrentTime(initialState.player?.currentTime ?? currentTime);
-      setDuration(initialState.player?.duration ?? duration);
-      setVolume(initialState.player?.volume ?? volume);
-      setIsMuted(initialState.player?.isMuted ?? isMuted);
-      setFileId(initialState.fileId ?? fileId);
+      const newFileId = initialState.fileId ?? fileId;
+      setFileId(newFileId);
+
+      // 只在 fileId 变化或第一次初始化时同步状态
+      if (newFileId && newFileId !== fileId) {
+        setCurrentTime(initialState.player?.currentTime ?? 0);
+        setVolume(initialState.player?.volume ?? 1.0);
+        setIsMuted(initialState.player?.isMuted ?? false);
+        // 不要自动开始播放，让用户手动控制
+        setIsPlaying(false);
+        setDuration(initialState.player?.duration ?? 0);
+      }
     }
-  }, [initialState]);
+  }, [initialState, fileId]);
 
   // Handle seek request from main window (subtitle click)
   useEffect(() => {
@@ -84,14 +91,14 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
 
   // Sync play state with video
   useEffect(() => {
-    if (videoRef.current) {
+    if (videoRef.current && isVideoReady) {
       if (isPlaying) {
         videoRef.current.play().catch(console.error);
       } else {
         videoRef.current.pause();
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, isVideoReady]);
 
   // Sync volume with video
   useEffect(() => {
@@ -120,6 +127,11 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
+      setIsVideoReady(true);
+    };
+
+    const handleCanPlay = () => {
+      setIsVideoReady(true);
     };
 
     const handleEnded = () => {
@@ -130,11 +142,13 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('ended', handleEnded);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
     };
   }, []);
