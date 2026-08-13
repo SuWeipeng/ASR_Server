@@ -39,7 +39,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       }
 
       // Play/Pause
-      if (event.key === SHORTCUTS.PLAY_PAUSE) {
+      if (event.code === 'Space' || event.key === ' ') {
         event.preventDefault();
         if (isRecording) {
           dispatch(setRecording(false));
