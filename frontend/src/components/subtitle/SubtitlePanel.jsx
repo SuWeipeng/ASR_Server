@@ -47,6 +47,15 @@ export const SubtitlePanel = () => {
     }
   };
 
+  // 执行跳转按钮 - 再次跳转到当前选中的时间
+  const handleExecuteJump = () => {
+    if (!selectedStartTime) return;
+    const index = subtitles.findIndex((sub) => sub.start === parseFloat(selectedStartTime));
+    if (index >= 0) {
+      handleSubtitleClick(index);
+    }
+  };
+
   const handleSubtitleClick = (index) => {
     const subtitle = subtitles[index];
     if (!subtitle) return;
@@ -133,11 +142,11 @@ export const SubtitlePanel = () => {
   return (
     <div className="flex flex-col h-full bg-bg-secondary rounded-lg border border-bg-card">
       {/* Jump to time selector */}
-      <div className="p-4 border-b border-bg-card flex-shrink-0">
+      <div className="p-4 border-b border-bg-card flex-shrink-0 flex gap-2">
         <select
           value={selectedStartTime}
           onChange={handleStartTimeChange}
-          className="input w-full"
+          className="input flex-1"
           data-jump-select
         >
           <option value="">跳转到...</option>
@@ -147,6 +156,13 @@ export const SubtitlePanel = () => {
             </option>
           ))}
         </select>
+        <button
+          onClick={handleExecuteJump}
+          disabled={!selectedStartTime}
+          className="btn-primary px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          执行跳转
+        </button>
       </div>
 
       {/* Subtitle list */}
