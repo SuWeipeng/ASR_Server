@@ -18,10 +18,6 @@ export const SHORTCUTS = {
   SPEED_1_0X: '3',
   SPEED_1_25X: '4',
 
-  // Search
-  SEARCH: 'f',
-  MODIFIER_SEARCH: 'Control',
-
   // Other
   CLOSE_MODAL: 'Escape',
   SHOW_HELP: '?',
@@ -41,7 +37,6 @@ export const SHORTCUT_DESCRIPTIONS = [
   { key: SHORTCUTS.SPEED_0_75X, description: '0.75倍速' },
   { key: SHORTCUTS.SPEED_1_0X, description: '1.0倍速' },
   { key: SHORTCUTS.SPEED_1_25X, description: '1.25倍速' },
-  { key: `${SHORTCUTS.MODIFIER_SEARCH}+${SHORTCUTS.SEARCH}`, description: '搜索字幕' },
   { key: SHORTCUTS.CLOSE_MODAL, description: '关闭弹窗' },
   { key: SHORTCUTS.SHOW_HELP, description: '显示帮助' },
 ];

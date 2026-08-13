@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Search, Play } from 'lucide-react';
-import { setSearchQuery, requestSeekToSubtitle, setCurrentSubtitleIndex } from '../../store/subtitleSlice';
+import { Play } from 'lucide-react';
+import { requestSeekToSubtitle, setCurrentSubtitleIndex } from '../../store/subtitleSlice';
 
 export const SubtitlePanel = () => {
   const dispatch = useDispatch();
-  const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
+  const subtitles = useSelector((state) => state.subtitle.subtitles);
   const currentSubtitleIndex = useSelector(
     (state) => state.subtitle.currentSubtitleIndex
   );
-  const searchQuery = useSelector((state) => state.subtitle.searchQuery);
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const isDetached = useSelector((state) => state.player.isDetached);
+  const [selectedStartTime, setSelectedStartTime] = useState('');
 
   // MSG_TYPES should match the one defined in App.jsx
   const MSG_TYPES = window.playerMsgTypes || {
@@ -23,8 +23,28 @@ export const SubtitlePanel = () => {
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const scrollTimeoutRef = useRef(null);
 
-  const handleSearchChange = (e) => {
-    dispatch(setSearchQuery(e.target.value));
+  // 生成时间选项
+  const timeOptions = subtitles.map((sub) => {
+    const minutes = Math.floor(sub.start / 60);
+    const seconds = Math.floor(sub.start % 60);
+    return {
+      value: sub.start,
+      label: `${minutes}:${seconds.toString().padStart(2, '0')}`,
+    };
+  });
+
+  // 跳转处理函数 - 下拉值变化时自动跳转
+  const handleStartTimeChange = (e) => {
+    const value = e.target.value;
+    setSelectedStartTime(value);
+
+    // 只在选择了有效值时才跳转
+    if (value) {
+      const index = subtitles.findIndex((sub) => sub.start === parseFloat(value));
+      if (index >= 0) {
+        handleSubtitleClick(index);
+      }
+    }
   };
 
   const handleSubtitleClick = (index) => {
@@ -97,6 +117,8 @@ export const SubtitlePanel = () => {
   // Clean up refs when subtitles change
   useEffect(() => {
     subtitleRefs.current = [];
+    // Reset selected start time when subtitles change
+    setSelectedStartTime('');
   }, [subtitles]);
 
   // Clean up timeout on unmount
@@ -110,22 +132,21 @@ export const SubtitlePanel = () => {
 
   return (
     <div className="flex flex-col h-full bg-bg-secondary rounded-lg border border-bg-card">
-      {/* Search bar */}
+      {/* Jump to time selector */}
       <div className="p-4 border-b border-bg-card flex-shrink-0">
-        <div className="relative">
-          <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
-          />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={handleSearchChange}
-            placeholder="搜索字幕..."
-            className="input w-full pl-10"
-            data-search-input
-          />
-        </div>
+        <select
+          value={selectedStartTime}
+          onChange={handleStartTimeChange}
+          className="input w-full"
+          data-jump-select
+        >
+          <option value="">跳转到...</option>
+          {timeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Subtitle list */}
@@ -137,7 +158,7 @@ export const SubtitlePanel = () => {
         {subtitles.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-text-secondary">
-              {searchQuery ? '未找到匹配的字幕' : '暂无字幕'}
+              暂无字幕
             </p>
           </div>
         ) : (

@@ -112,15 +112,6 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
         dispatch(setPlaybackRate(1.25));
       }
 
-      // Search
-      if (event.key === SHORTCUTS.SEARCH && event.ctrlKey) {
-        event.preventDefault();
-        const searchInput = document.querySelector('[data-search-input]');
-        if (searchInput) {
-          searchInput.focus();
-        }
-      }
-
       // Close modal
       if (event.key === SHORTCUTS.CLOSE_MODAL) {
         event.preventDefault();
