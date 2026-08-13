@@ -8,6 +8,7 @@ const MSG_TYPES = {
   WINDOW_CLOSED: 'WINDOW_CLOSED',
   STATE_UPDATE: 'STATE_UPDATE',
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
+  PLAY_PAUSE: 'PLAY_PAUSE',
   RECORDING_START: 'RECORDING_START',
   RECORDING_STOP: 'RECORDING_STOP',
 };
@@ -17,6 +18,7 @@ function PlayerWindowApp() {
   const channelRef = useRef(null);
   const [initialState, setInitialState] = useState(null);
   const [seekRequest, setSeekRequest] = useState(null);
+  const [playPauseRequest, setPlayPauseRequest] = useState(0);
 
   useEffect(() => {
     // Initialize BroadcastChannel
@@ -41,6 +43,11 @@ function PlayerWindowApp() {
           if (payload.start !== undefined && payload.end !== undefined) {
             setSeekRequest({ start: payload.start, end: payload.end });
           }
+          break;
+
+        case MSG_TYPES.PLAY_PAUSE:
+          // 主窗口请求切换播放/暂停
+          setPlayPauseRequest(prev => prev + 1);
           break;
 
         case MSG_TYPES.CLOSE:
@@ -109,6 +116,7 @@ function PlayerWindowApp() {
       initialState={initialState}
       seekRequest={seekRequest}
       onSeekHandled={() => setSeekRequest(null)}
+      playPauseRequest={playPauseRequest}
       onStateUpdate={handleStateUpdate}
       onClose={handleClose}
     />

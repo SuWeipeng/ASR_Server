@@ -21,6 +21,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
     (state) => state.subtitle.currentSubtitleIndex
   );
   const isRecording = useSelector((state) => state.practice.isRecording);
+  const isDetached = useSelector((state) => state.player.isDetached);
   const recordingStartRef = useRef(null);
 
   /**
@@ -43,7 +44,14 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
         if (isRecording) {
           dispatch(setRecording(false));
         } else {
-          dispatch(togglePlay());
+          // 如果播放器已弹出，通知播放窗口切换播放状态
+          if (isDetached && window.playerWindowChannel) {
+            window.playerWindowChannel.postMessage({
+              type: window.playerMsgTypes?.PLAY_PAUSE || 'PLAY_PAUSE',
+            });
+          } else {
+            dispatch(togglePlay());
+          }
         }
       }
 

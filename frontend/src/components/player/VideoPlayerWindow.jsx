@@ -5,7 +5,7 @@ import { MSG_TYPES } from '../../hooks/usePlayerWindow';
 import { mediaService } from '../../services/mediaService';
 import { SHORTCUTS, isShortcutMatch } from '../../utils/shortcuts';
 
-export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, onStateUpdate, onClose }) {
+export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, playPauseRequest, onStateUpdate, onClose }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const progressBarRef = useRef(null);
@@ -162,6 +162,13 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
   const togglePlayback = useCallback(() => {
     setIsPlaying(prevPlaying => !prevPlaying);
   }, []);
+
+  // Handle play/pause request from main window
+  useEffect(() => {
+    if (playPauseRequest > 0) {
+      togglePlayback();
+    }
+  }, [playPauseRequest, togglePlayback]);
 
   // Compute seek time from pointer position
   const computeTimeFromEvent = useCallback((clientX) => {
