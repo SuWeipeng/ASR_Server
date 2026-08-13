@@ -336,6 +336,9 @@ export const VideoPlayer = forwardRef((props, ref) => {
           preload="auto"
           className="w-full h-full"
           onClick={togglePlayback}
+          onError={(e) => {
+            console.error('[VideoPlayer] Video error:', e);
+          }}
         />
 
         {/* Center play overlay - only when not playing */}

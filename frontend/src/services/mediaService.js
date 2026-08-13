@@ -1,5 +1,9 @@
 import api from './api';
 
+// Direct backend URL for media files to bypass Vite proxy
+// Vite proxy has issues with large video files (ERR_INVALID_HTTP_RESPONSE)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 export const mediaService = {
   /**
    * Upload media file
@@ -25,20 +29,22 @@ export const mediaService = {
 
   /**
    * Get media file URL for streaming
+   * Uses direct backend URL to bypass Vite proxy (issues with large files)
    * @param {string} fileId - File ID
    * @returns {string} Media URL
    */
   getMediaUrl: (fileId) => {
-    return `/api/media/file/${fileId}`;
+    return `${API_BASE_URL}/api/media/file/${fileId}`;
   },
 
   /**
    * Get extracted audio file URL
+   * Uses direct backend URL to bypass Vite proxy
    * @param {string} fileId - File ID
    * @returns {string} Audio URL
    */
   getAudioUrl: (fileId) => {
-    return `/api/media/audio/${fileId}`;
+    return `${API_BASE_URL}/api/media/audio/${fileId}`;
   },
 
   /**

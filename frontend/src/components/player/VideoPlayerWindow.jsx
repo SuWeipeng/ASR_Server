@@ -370,7 +370,6 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, on
           ref={videoRef}
           src={mediaUrl}
           preload="auto"
-          crossOrigin="anonymous"
           className="w-full h-full object-contain"
           onClick={togglePlayback}
           onError={(e) => {

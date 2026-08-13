@@ -51,6 +51,8 @@ function App() {
       } else if (videoRef.current) {
         // 否则直接操作主窗口的视频元素
         videoRef.current.currentTime = target.start;
+        // 启动播放
+        dispatch(setPlaying(true));
       }
     }
   }, [dispatch, isDetached]);
