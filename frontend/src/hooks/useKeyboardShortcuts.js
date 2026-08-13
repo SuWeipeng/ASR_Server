@@ -133,6 +133,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       currentSubtitleIndex,
       subtitles.length,
       isRecording,
+      isDetached,
       dispatch,
       onSeekToSubtitle,
     ]
