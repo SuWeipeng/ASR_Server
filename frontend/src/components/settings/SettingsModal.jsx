@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { X, RotateCcw, Mic } from 'lucide-react';
 import { getVADConfig, updateVADConfig, getNoiseConfig, updateNoiseConfig, toggleSettings, setMicDeviceId, setMicNoiseConfig } from '../../store/uiSlice';
 import { store } from '../../store';
+import { generateSubtitles } from '../../store/subtitleSlice';
 
 export const SettingsModal = () => {
   const dispatch = useDispatch();
@@ -193,10 +194,22 @@ export const SettingsModal = () => {
 
       await Promise.all(promises);
 
-      // 保存成功后关闭设置模态框
+      // 配置保存成功，立即关闭设置模态框
+      // 不等待字幕刷新完成，提升用户体验
       dispatch(toggleSettings());
+
+      // 配置更新成功后，如果有当前文件，强制刷新字幕（跳过缓存）
+      // 在后台异步执行，不阻塞 UI
+      if (fileId) {
+        dispatch(generateSubtitles({ fileId, forceRefresh: true }))
+          .unwrap()
+          .catch((error) => {
+            // 字幕刷新失败不影响配置保存的结果
+            console.error('Failed to refresh subtitles after config update:', error);
+          });
+      }
     } catch (error) {
-      // 保存失败，保持模态框打开让用户看到错误
+      // 配置保存失败，保持模态框打开让用户看到错误
       console.error('Failed to save config:', error);
     }
   };

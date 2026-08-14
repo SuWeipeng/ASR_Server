@@ -27,18 +27,9 @@ export const getVADConfig = createAsyncThunk(
 
 export const updateVADConfig = createAsyncThunk(
   'ui/updateVADConfig',
-  async (config, { rejectWithValue, dispatch, getState }) => {
+  async (config, { rejectWithValue }) => {
     try {
       const response = await systemService.updateVADConfig(config);
-
-      // 更新成功后，如果有当前文件，强制刷新字幕（跳过缓存）
-      const fileId = getState().media.fileId;
-      if (fileId) {
-        // 动态导入 subtitleSlice 避免循环依赖
-        const { generateSubtitles } = await import('../store/subtitleSlice');
-        await dispatch(generateSubtitles({ fileId, forceRefresh: true }));
-      }
-
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -60,18 +51,9 @@ export const getNoiseConfig = createAsyncThunk(
 
 export const updateNoiseConfig = createAsyncThunk(
   'ui/updateNoiseConfig',
-  async (config, { rejectWithValue, dispatch, getState }) => {
+  async (config, { rejectWithValue }) => {
     try {
       const response = await systemService.updateNoiseConfig(config);
-
-      // 更新成功后，如果有当前文件，强制刷新字幕（跳过缓存）
-      const fileId = getState().media.fileId;
-      if (fileId) {
-        // 动态导入 subtitleSlice 避免循环依赖
-        const { generateSubtitles } = await import('../store/subtitleSlice');
-        await dispatch(generateSubtitles({ fileId, forceRefresh: true }));
-      }
-
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);

@@ -5,9 +5,13 @@ export const generateSubtitles = createAsyncThunk(
   'subtitle/generateSubtitles',
   async ({ fileId, language = 'auto', forceRefresh = false }, { rejectWithValue }) => {
     try {
+      console.log('[Subtitle] Calling generateSubtitles API:', { fileId, language, forceRefresh });
       const response = await transcriptionService.generateSubtitles(fileId, language, forceRefresh);
+      console.log('[Subtitle] API response received:', response);
+      console.log('[Subtitle] Response segments:', response.segments, 'Length:', response.segments?.length);
       return response;
     } catch (error) {
+      console.error('[Subtitle] API error:', error);
       return rejectWithValue(error.response?.data || error.message);
     }
   }
@@ -111,17 +115,27 @@ const subtitleSlice = createSlice({
       .addCase(generateSubtitles.pending, (state) => {
         state.isLoading = true;
         state.error = null;
+        console.log('[Subtitle] generateSubtitles pending - clearing current subtitles');
       })
       .addCase(generateSubtitles.fulfilled, (state, action) => {
         state.isLoading = false;
+        console.log('[Subtitle] generateSubtitles fulfilled');
+        console.log('[Subtitle] Action payload:', action.payload);
+        console.log('[Subtitle] Action payload type:', typeof action.payload);
+        console.log('[Subtitle] Action.payload.segments:', action.payload.segments);
+        console.log('[Subtitle] Action.payload.segments type:', typeof action.payload.segments);
+        console.log('[Subtitle] Action.payload.segments length:', action.payload.segments?.length);
+
         state.subtitles = action.payload.segments;
         state.filteredSubtitles = action.payload.segments;
         state.currentSubtitleIndex = -1;
         state.error = null;
+        console.log('[Subtitle] State updated. Subtitles count:', state.subtitles?.length);
       })
       .addCase(generateSubtitles.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload || 'Failed to generate subtitles';
+        console.error('[Subtitle] generateSubtitles rejected:', state.error);
       })
       // Get subtitles
       .addCase(getSubtitles.fulfilled, (state, action) => {

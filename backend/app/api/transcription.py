@@ -42,6 +42,7 @@ async def generate_subtitles(
     """
     try:
         logger.info(f"Generating subtitles for file: {request.file_id}")
+        logger.info(f"Force refresh: {request.force_refresh}, Language: {request.language.value}, Use VAD: {request.use_vad}")
 
         # Verify file exists
         media_file = media_service.get_file(request.file_id)
@@ -63,8 +64,54 @@ async def generate_subtitles(
                 detail="Failed to generate subtitles"
             )
 
+        logger.info(f"Subtitle generation completed: {len(result.segments)} segments generated")
+
         # Cache result
         _transcription_cache[request.file_id] = result
+
+        # Convert to response format
+        from app.models.schemas import SubtitleSegment as SubtitleSegmentSchema
+
+        segments_schema = [
+            SubtitleSegmentSchema(
+                id=seg.id,
+                start=seg.start,
+                end=seg.end,
+                text=seg.text,
+                words=[
+                    {
+                        "word": w.word,
+                        "start": w.start,
+                        "end": w.end,
+                        "confidence": w.confidence
+                    }
+                    for w in seg.words
+                ] if seg.words else None,
+                translation=seg.translation
+            )
+            for seg in result.segments
+        ]
+
+        # Debug: log the segments schema
+        logger.info(f"[DEBUG] Creating segments schema with {len(segments_schema)} segments")
+        if segments_schema:
+            logger.info(f"[DEBUG] First segment sample: id={segments_schema[0].id}, text={segments_schema[0].text[:50]}...")
+
+        response_data = TranscriptionGenerateResponse(
+            success=True,
+            file_id=result.file_id,
+            language=result.language,
+            segments=segments_schema,
+            full_text=result.full_text,
+            duration=result.duration,
+            processing_time=result.processing_time,
+            message="Subtitles generated successfully"
+        )
+
+        # Debug: log the final response data structure
+        logger.info(f"[DEBUG] Final response: success={response_data.success}, segments_count={len(response_data.segments)}")
+
+        return response_data
 
         # Convert to response format
         from app.models.schemas import SubtitleSegment as SubtitleSegmentSchema

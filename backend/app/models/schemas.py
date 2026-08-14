@@ -1,7 +1,7 @@
 """
 Pydantic schemas for request/response validation
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -82,6 +82,8 @@ class SubtitleWord(BaseModel):
 
 class SubtitleSegment(BaseModel):
     """Subtitle segment (sentence/phrase)"""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     start: float = Field(..., description="Start time in seconds")
     end: float = Field(..., description="End time in seconds")
