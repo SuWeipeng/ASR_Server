@@ -21,6 +21,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
     (state) => state.subtitle.currentSubtitleIndex
   );
   const isRecording = useSelector((state) => state.practice.isRecording);
+  const audioUrl = useSelector((state) => state.practice.audioUrl);
   const isDetached = useSelector((state) => state.player.isDetached);
   const recordingStartRef = useRef(null);
 
@@ -85,6 +86,13 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
         dispatch(toggleLoop());
       }
 
+      // Play user audio
+      if (isShortcutMatch(event, SHORTCUTS.PLAY_USER_AUDIO)) {
+        event.preventDefault();
+        // Trigger custom event for PracticeCard to handle
+        window.dispatchEvent(new CustomEvent('playUserAudio'));
+      }
+
       // Recording (hold to record)
       if (isShortcutMatch(event, SHORTCUTS.START_RECORDING)) {
         if (!event.repeat && !isRecording) {
@@ -124,6 +132,7 @@ export const useKeyboardShortcuts = (mediaRef, onSeekToSubtitle) => {
       currentSubtitleIndex,
       subtitles.length,
       isRecording,
+      audioUrl,
       isDetached,
       dispatch,
       onSeekToSubtitle,

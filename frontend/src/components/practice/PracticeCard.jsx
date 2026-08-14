@@ -157,6 +157,19 @@ export const PracticeCard = ({ videoRef }) => {
     };
   }, []);
 
+  // Handle play user audio keyboard shortcut (J key)
+  useEffect(() => {
+    const handlePlayUserAudio = () => {
+      if (audioRef.current && audioUrl) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+      }
+    };
+
+    window.addEventListener('playUserAudio', handlePlayUserAudio);
+    return () => window.removeEventListener('playUserAudio', handlePlayUserAudio);
+  }, [audioUrl]);
+
   // Sync recording state (local recorder -> Redux)
   useEffect(() => {
     dispatch(setRecording(recorderRecording));

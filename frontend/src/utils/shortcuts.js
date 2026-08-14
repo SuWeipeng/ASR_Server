@@ -8,6 +8,7 @@ export const SHORTCUTS = {
   NEXT_SENTENCE: 'd',
   REPLAY_CURRENT: 'r',
   TOGGLE_LOOP: 's',
+  PLAY_USER_AUDIO: 'j',
 
   // Recording
   START_RECORDING: 'l',
@@ -32,6 +33,7 @@ export const SHORTCUT_DESCRIPTIONS = [
   { key: SHORTCUTS.NEXT_SENTENCE, description: '下一句' },
   { key: SHORTCUTS.REPLAY_CURRENT, description: '重播当前句' },
   { key: SHORTCUTS.TOGGLE_LOOP, description: '切换循环' },
+  { key: SHORTCUTS.PLAY_USER_AUDIO, description: '播放用户录音' },
   { key: SHORTCUTS.START_RECORDING, description: '按住录音' },
   { key: SHORTCUTS.SPEED_0_5X, description: '0.5倍速' },
   { key: SHORTCUTS.SPEED_0_75X, description: '0.75倍速' },
