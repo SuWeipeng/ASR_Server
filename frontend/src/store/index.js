@@ -24,7 +24,7 @@ export const store = configureStore({
     }),
 });
 
-// Persist selected microphone deviceId across reloads
+// Persist selected microphone deviceId and micNoiseConfig across reloads
 let lastPersistedMicId =
   (() => {
     try {
@@ -33,8 +33,21 @@ let lastPersistedMicId =
       return null;
     }
   })();
+
+let lastPersistedMicNoiseConfig =
+  (() => {
+    try {
+      return JSON.stringify(store.getState().ui.micNoiseConfig);
+    } catch {
+      return null;
+    }
+  })();
+
 store.subscribe(() => {
-  const micId = store.getState().ui.selectedMicDeviceId || null;
+  const state = store.getState().ui;
+
+  // Persist mic device ID
+  const micId = state.selectedMicDeviceId || null;
   if (micId !== lastPersistedMicId) {
     try {
       if (micId) localStorage.setItem('selectedMicDeviceId', micId);
@@ -43,6 +56,17 @@ store.subscribe(() => {
       // ignore (e.g. storage disabled)
     }
     lastPersistedMicId = micId;
+  }
+
+  // Persist mic noise config
+  const micNoiseConfigStr = JSON.stringify(state.micNoiseConfig);
+  if (micNoiseConfigStr !== lastPersistedMicNoiseConfig) {
+    try {
+      localStorage.setItem('micNoiseConfig', micNoiseConfigStr);
+    } catch {
+      // ignore (e.g. storage disabled)
+    }
+    lastPersistedMicNoiseConfig = micNoiseConfigStr;
   }
 });
 

@@ -79,6 +79,34 @@ export const updateNoiseConfig = createAsyncThunk(
   }
 );
 
+function getInitialMicDeviceId() {
+  try {
+    return localStorage.getItem('selectedMicDeviceId') || null;
+  } catch {
+    return null;
+  }
+}
+
+function getInitialMicNoiseConfig() {
+  try {
+    const stored = localStorage.getItem('micNoiseConfig');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    // Use default if storage fails
+  }
+  // Default configuration
+  return {
+    enabled: false,
+    lowcut: 200,
+    highcut: 3500,
+    order: 4,
+    filter_type: 'bandpass',
+    normalize_after_filter: true,
+  };
+}
+
 const initialState = {
   isLoading: false,
   loadingMessage: '',
@@ -89,6 +117,7 @@ const initialState = {
   showWordTooltip: false,
   selectedWord: null,
   selectedMicDeviceId: getInitialMicDeviceId(),
+  micNoiseConfig: getInitialMicNoiseConfig(),
   systemStatus: null,
   vadConfig: null,
   vadConfigLoading: false,
@@ -97,14 +126,6 @@ const initialState = {
   noiseConfigLoading: false,
   noiseConfigError: null,
 };
-
-function getInitialMicDeviceId() {
-  try {
-    return localStorage.getItem('selectedMicDeviceId') || null;
-  } catch {
-    return null;
-  }
-}
 
 const uiSlice = createSlice({
   name: 'ui',
@@ -141,6 +162,9 @@ const uiSlice = createSlice({
     },
     setMicDeviceId: (state, action) => {
       state.selectedMicDeviceId = action.payload || null;
+    },
+    setMicNoiseConfig: (state, action) => {
+      state.micNoiseConfig = { ...state.micNoiseConfig, ...action.payload };
     },
   },
   extraReducers: (builder) => {
@@ -215,6 +239,7 @@ export const {
   showWordTooltip,
   hideWordTooltip,
   setMicDeviceId,
+  setMicNoiseConfig,
 } = uiSlice.actions;
 
 export const getNoiseConfigAction = getNoiseConfig;

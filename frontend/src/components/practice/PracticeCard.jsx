@@ -8,6 +8,8 @@ import { HighlightText } from './HighlightText';
 import { WaveformDisplay } from './WaveformDisplay';
 import { UserRecordingWaveform } from './UserRecordingWaveform';
 import { requestSeekToSubtitle } from '../../store/subtitleSlice';
+import { createNoiseFilterChain, connectFilterChain, disconnectFilterChain } from '../../utils/audioFilter';
+import { store } from '../../store';
 
 // MSG_TYPES should match the one defined in App.jsx
 const MSG_TYPES = window.playerMsgTypes || {
@@ -35,6 +37,95 @@ export const PracticeCard = ({ videoRef }) => {
   const [recordingStartTime, setRecordingStartTime] = useState(null);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const audioRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const filterChainRef = useRef([]);
+  const gainNodeRef = useRef(null);
+
+  // Get mic noise config for playback
+  const micNoiseConfig = useSelector((state) => state.ui.micNoiseConfig);
+
+  // Setup noise reduction filter chain for audio playback
+  useEffect(() => {
+    if (!audioUrl || !audioRef.current) return;
+
+    const audioElement = audioRef.current;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+    // Only setup if noise reduction is enabled
+    if (!micNoiseConfig?.enabled) {
+      // Clean up any existing audio context
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {
+          // Ignore
+        }
+        audioContextRef.current = null;
+      }
+      return;
+    }
+
+    // Create audio context and filter chain
+    let ctx = audioContextRef.current;
+    let source;
+
+    try {
+      // Create or reuse audio context
+      if (!ctx) {
+        ctx = new AudioContextClass();
+        audioContextRef.current = ctx;
+      }
+
+      // Resume context if suspended (autoplay policy)
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      // Create media element source (only once per audio element)
+      // We use a flag to track if we've already created the source for this element
+      if (!audioElement._filterSourceConnected) {
+        source = ctx.createMediaElementSource(audioElement);
+        audioElement._filterSourceConnected = true;
+        audioElement._filterSource = source;
+      } else {
+        source = audioElement._filterSource;
+      }
+
+      // Disconnect any existing connections
+      try {
+        source.disconnect();
+      } catch (e) {
+        // Ignore
+      }
+
+      // Create filter chain
+      const { filters, gainNode } = createNoiseFilterChain(ctx, micNoiseConfig);
+      filterChainRef.current = filters;
+      gainNodeRef.current = gainNode;
+
+      // Connect filter chain
+      connectFilterChain(source, ctx.destination, filters, gainNode);
+
+    } catch (error) {
+      console.error('Error setting up noise reduction:', error);
+    }
+
+    // Cleanup function
+    return () => {
+      // Don't close the audio context on unmount, as it may be reused
+      // Just disconnect the filter chain
+      if (source) {
+        try {
+          source.disconnect();
+        } catch (e) {
+          // Ignore
+        }
+      }
+      disconnectFilterChain(filterChainRef.current, gainNodeRef.current);
+      filterChainRef.current = [];
+      gainNodeRef.current = null;
+    };
+  }, [audioUrl, micNoiseConfig]);
 
   // Current sentence
   const currentSentence =
@@ -50,6 +141,21 @@ export const PracticeCard = ({ videoRef }) => {
     clearRecording();  // Also clear the audio blob from useMediaRecorder
     setAudioCurrentTime(0);
   }, [currentSentence?.id, dispatch]); // Use sentence ID as the key
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Close audio context if exists
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {
+          // Ignore
+        }
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
 
   // Sync recording state (local recorder -> Redux)
   useEffect(() => {
