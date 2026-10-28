@@ -204,6 +204,8 @@ class VADConfigResponse(BaseModel):
     min_silence_duration_ms: int
     max_speech_duration_s: float
     sample_rate: int
+    speech_pad_ms: int = 200
+    max_merge_gap_s: float = 0.5
 
 
 class VADConfigUpdateRequest(BaseModel):
@@ -211,6 +213,8 @@ class VADConfigUpdateRequest(BaseModel):
     min_silence_duration_ms: Optional[int] = Field(None, ge=100, le=2000)
     max_speech_duration_s: Optional[float] = Field(None, ge=5, le=120)
     sample_rate: Optional[int] = Field(None, ge=8000, le=48000)
+    speech_pad_ms: Optional[int] = Field(None, ge=0, le=1000)
+    max_merge_gap_s: Optional[float] = Field(None, ge=0, le=10)
 
 
 # ===== Noise Reduction Configuration Schemas =====

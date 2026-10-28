@@ -17,7 +17,9 @@ async def get_vad_config():
         return VADConfigResponse(
             min_silence_duration_ms=config.min_silence_duration_ms,
             max_speech_duration_s=config.max_speech_duration_s,
-            sample_rate=config.sample_rate
+            sample_rate=config.sample_rate,
+            speech_pad_ms=config.speech_pad_ms,
+            max_merge_gap_s=config.max_merge_gap_s
         )
     except Exception as e:
         logger.error(f"Failed to get VAD config: {e}")
@@ -40,7 +42,9 @@ async def update_vad_config(request: VADConfigUpdateRequest):
         return VADConfigResponse(
             min_silence_duration_ms=config.min_silence_duration_ms,
             max_speech_duration_s=config.max_speech_duration_s,
-            sample_rate=config.sample_rate
+            sample_rate=config.sample_rate,
+            speech_pad_ms=config.speech_pad_ms,
+            max_merge_gap_s=config.max_merge_gap_s
         )
     except HTTPException:
         raise
@@ -57,7 +61,9 @@ async def reset_vad_config():
         return VADConfigResponse(
             min_silence_duration_ms=config.min_silence_duration_ms,
             max_speech_duration_s=config.max_speech_duration_s,
-            sample_rate=config.sample_rate
+            sample_rate=config.sample_rate,
+            speech_pad_ms=config.speech_pad_ms,
+            max_merge_gap_s=config.max_merge_gap_s
         )
     except Exception as e:
         logger.error(f"Failed to reset VAD config: {e}")

@@ -153,14 +153,16 @@ class VADAudioSplitter:
         get_speech_timestamps = vad_utils[0]
         logger.info(f"[VAD SPLIT] Calling get_speech_timestamps with params: "
                    f"sampling_rate={sr}, min_silence={vad_config.min_silence_duration_ms}ms, "
-                   f"max_speech={vad_config.max_speech_duration_s}s")
+                   f"max_speech={vad_config.max_speech_duration_s}s, "
+                   f"speech_pad={vad_config.speech_pad_ms}ms")
 
         speech_timestamps = get_speech_timestamps(
             wav_tensor,
             vad_model,
             sampling_rate=sr,
             min_silence_duration_ms=vad_config.min_silence_duration_ms,
-            max_speech_duration_s=vad_config.max_speech_duration_s
+            max_speech_duration_s=vad_config.max_speech_duration_s,
+            speech_pad_ms=vad_config.speech_pad_ms
         )
 
         logger.info(f"[VAD SPLIT] Detected {len(speech_timestamps) if speech_timestamps else 0} speech segments")
@@ -168,6 +170,12 @@ class VADAudioSplitter:
         if not speech_timestamps:
             logger.warning("[VAD SPLIT] No speech detected in audio")
             return []
+
+        # speech_pad 可能使相邻段重叠，钳制保证段间不重叠
+        for i in range(1, len(speech_timestamps)):
+            prev_end = speech_timestamps[i - 1]['end']
+            if speech_timestamps[i]['start'] < prev_end:
+                speech_timestamps[i]['start'] = prev_end
 
         # Convert VAD timestamps to audio segments (与 example_qwen3_asr_with_vad.py 一致)
         segments = []
@@ -202,7 +210,65 @@ class VADAudioSplitter:
                     sample_rate=sr
                 ))
 
+        # 合并间隔较小的相邻段，让识别模型看到更完整的句子
+        segments = self._merge_adjacent_segments(segments, wav, sr)
+
         return segments
+
+    def _merge_adjacent_segments(
+        self,
+        segments: List[AudioSegment],
+        wav: np.ndarray,
+        sr: int
+    ) -> List[AudioSegment]:
+        """
+        合并间隔较小的相邻语音段
+
+        语速快时句间停顿很短（>= min_silence 即被 VAD 切开），
+        合并后 ASR 能看到完整句子，减少句中切断。
+
+        Args:
+            segments: VAD 切分出的语音段（按时间排序）
+            wav: 完整音频波形
+            sr: 采样率
+
+        Returns:
+            合并后的语音段列表
+        """
+        config = get_vad_config().get_config()
+        max_gap = config.max_merge_gap_s
+        max_duration = config.max_speech_duration_s
+
+        if max_gap <= 0 or len(segments) < 2:
+            return segments
+
+        merged: List[AudioSegment] = []
+        merge_count = 0
+
+        for seg in segments:
+            if merged:
+                prev = merged[-1]
+                gap = seg.start_time - prev.end_time
+                combined = seg.end_time - prev.start_time
+                if gap <= max_gap and combined <= max_duration:
+                    start_sample = int(prev.start_time * sr)
+                    end_sample = int(seg.end_time * sr)
+                    merged[-1] = AudioSegment(
+                        audio=wav[start_sample:end_sample],
+                        start_time=prev.start_time,
+                        end_time=seg.end_time,
+                        sample_rate=sr
+                    )
+                    merge_count += 1
+                    continue
+            merged.append(seg)
+
+        if merge_count:
+            logger.info(
+                f"[VAD MERGE] Merged {merge_count} adjacent gaps "
+                f"(gap <= {max_gap}s, total <= {max_duration}s)"
+            )
+        return merged
 
     def _split_long_segment(
         self,

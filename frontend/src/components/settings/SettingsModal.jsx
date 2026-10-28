@@ -41,6 +41,8 @@ export const SettingsModal = () => {
     min_silence_duration_ms: 500,
     max_speech_duration_s: 30,
     sample_rate: 16000,
+    speech_pad_ms: 200,
+    max_merge_gap_s: 0.5,
   });
 
   // 降噪参数表单状态
@@ -60,6 +62,8 @@ export const SettingsModal = () => {
         min_silence_duration_ms: vadConfig.min_silence_duration_ms || 500,
         max_speech_duration_s: vadConfig.max_speech_duration_s || 30,
         sample_rate: vadConfig.sample_rate || 16000,
+        speech_pad_ms: vadConfig.speech_pad_ms ?? 200,
+        max_merge_gap_s: vadConfig.max_merge_gap_s ?? 0.5,
       });
     }
   }, [vadConfig]);
@@ -232,6 +236,8 @@ export const SettingsModal = () => {
       min_silence_duration_ms: 500,
       max_speech_duration_s: 30,
       sample_rate: 16000,
+      speech_pad_ms: 200,
+      max_merge_gap_s: 0.5,
     });
     setNoiseFormData({
       enabled: true,
@@ -682,6 +688,44 @@ export const SettingsModal = () => {
                     />
                   </div>
 
+                  {/* 语音边界填充 */}
+                  <div className="space-y-2">
+                    <label className="text-sm text-text-secondary">
+                      语音边界填充: {formData.speech_pad_ms} ms
+                      <span className="text-xs text-text-tertiary ml-2">
+                        (语音段首尾向外扩展，给识别模型更多上下文)
+                      </span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="500"
+                      step="50"
+                      value={formData.speech_pad_ms}
+                      onChange={(e) => handleInputChange('speech_pad_ms', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* 相邻段合并间隔 */}
+                  <div className="space-y-2">
+                    <label className="text-sm text-text-secondary">
+                      相邻段合并间隔: {formData.max_merge_gap_s} 秒
+                      <span className="text-xs text-text-tertiary ml-2">
+                        (间隔小于该值的相邻语音段合并后再识别，避免句中切断)
+                      </span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="3"
+                      step="0.1"
+                      value={formData.max_merge_gap_s}
+                      onChange={(e) => handleInputChange('max_merge_gap_s', parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+
                   {/* 采样率 */}
                   <div className="flex items-center justify-between">
                     <label className="text-sm text-text-secondary">采样率</label>
@@ -701,6 +745,8 @@ export const SettingsModal = () => {
                     <div className="font-medium mb-2">默认值:</div>
                     <div>• min_silence_duration_ms: 500</div>
                     <div>• max_speech_duration_s: 30</div>
+                    <div>• speech_pad_ms: 200</div>
+                    <div>• max_merge_gap_s: 0.5</div>
                     <div>• sampling_rate: 16000</div>
                   </div>
                 </>

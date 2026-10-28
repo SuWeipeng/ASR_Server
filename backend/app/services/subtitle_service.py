@@ -11,6 +11,7 @@ from app.services.media_service import media_service
 from app.services.cache_service import cache_service
 from app.config import settings
 from app.utils import logger, extract_audio_segment
+from app.utils.punct_segmentation import segment_subtitles
 from app.models.domain import SubtitleSegment, SubtitleWord, TranscriptionResult
 
 
@@ -183,6 +184,44 @@ class SubtitleService:
         vad_segments = transcription_result.get("vad_segments")
 
         if "timestamps" in transcription_result:
+            # 优先：基于标点的语意断句（无视 VAD 段边界，跨块半句自动合并）
+            timestamps = transcription_result.get("timestamps") or []
+            if timestamps:
+                semantic_segments = segment_subtitles(
+                    transcription_result.get("text", ""),
+                    timestamps,
+                    max_duration_s=settings.SUBTITLE_MAX_SEGMENT_DURATION
+                )
+                if semantic_segments:
+                    logger.info(
+                        f"Semantic segmentation by punctuation: "
+                        f"{len(semantic_segments)} segments"
+                    )
+                    for seg in semantic_segments:
+                        segments.append(SubtitleSegment(
+                            id=segment_id,
+                            start=seg["start"],
+                            end=seg["end"],
+                            text=seg["text"],
+                            words=[
+                                SubtitleWord(
+                                    word=w["word"],
+                                    start=w["start"],
+                                    end=w["end"]
+                                )
+                                for w in seg["words"]
+                            ]
+                        ))
+                        segment_id += 1
+                    logger.info(f"Created {len(segments)} subtitle segments")
+                    return segments
+
+                # 对齐失败，回退到旧的分组逻辑
+                logger.warning(
+                    "Punctuation alignment failed, "
+                    "falling back to legacy segmentation"
+                )
+
             if vad_segments:
                 # Use VAD segments to group words
                 logger.info(f"Using {len(vad_segments)} VAD segments for subtitle generation")

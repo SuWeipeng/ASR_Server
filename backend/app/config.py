@@ -63,6 +63,11 @@ class Settings:
     VAD_MAX_SPEECH_DURATION_S = float(os.getenv("VAD_MAX_SPEECH_DURATION_S", "30"))
     VAD_SAMPLE_RATE = int(os.getenv("VAD_SAMPLE_RATE", "16000"))
     VAD_MAX_SEGMENTS = int(os.getenv("VAD_MAX_SEGMENTS", "100"))
+    VAD_SPEECH_PAD_MS = int(os.getenv("VAD_SPEECH_PAD_MS", "200"))  # 语音段边界向外填充
+    VAD_MAX_MERGE_GAP_S = float(os.getenv("VAD_MAX_MERGE_GAP_S", "0.5"))  # 相邻语音段合并的最大间隔
+
+    # Subtitle segmentation
+    SUBTITLE_MAX_SEGMENT_DURATION = float(os.getenv("SUBTITLE_MAX_SEGMENT_DURATION", "10"))  # 秒，超长句二次切分阈值
 
     @classmethod
     def get_torch_dtype(cls):

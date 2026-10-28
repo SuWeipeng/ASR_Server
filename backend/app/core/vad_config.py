@@ -22,6 +22,8 @@ class VADConfig:
     min_silence_duration_ms: int = 500  # 毫秒，最小静音时长
     max_speech_duration_s: float = 30.0  # 秒，单段最大语音时长
     sample_rate: int = 16000  # 采样率
+    speech_pad_ms: int = 200  # 毫秒，语音段边界向外填充，给识别模型上下文
+    max_merge_gap_s: float = 0.5  # 秒，相邻语音段间隔小于该值时合并，避免句中被切开
 
     @classmethod
     def from_settings(cls) -> 'VADConfig':
@@ -30,6 +32,8 @@ class VADConfig:
             min_silence_duration_ms=settings.VAD_MIN_SILENCE_DURATION_MS,
             max_speech_duration_s=settings.VAD_MAX_SPEECH_DURATION_S,
             sample_rate=settings.VAD_SAMPLE_RATE,
+            speech_pad_ms=settings.VAD_SPEECH_PAD_MS,
+            max_merge_gap_s=settings.VAD_MAX_MERGE_GAP_S,
         )
 
     def to_dict(self) -> dict:
@@ -74,6 +78,8 @@ class VADConfigManager:
             min_silence_duration_ms=500,
             max_speech_duration_s=30.0,
             sample_rate=16000,
+            speech_pad_ms=200,
+            max_merge_gap_s=0.5,
         )
         self._save_to_file()
         logger.info("VAD config reset to example defaults")
