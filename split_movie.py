@@ -113,6 +113,24 @@ def cut_video(input_path: str, output_path: str, start: float, duration: float, 
 
 # ---------- 转写与断句 ----------
 
+_TIMESTAMPS_PLACEHOLDER = "__TIMESTAMPS_PLACEHOLDER__"
+
+
+def format_cache_json(data: dict) -> str:
+    """缓存 JSON 排版：顶层字段多行缩进便于阅读；timestamps（上万词）压成单行，
+    避免逐行缩进把文件膨胀到几十万行"""
+    head = {k: v for k, v in data.items() if k != "timestamps"}
+    content = json.dumps({**head, "timestamps": _TIMESTAMPS_PLACEHOLDER},
+                         ensure_ascii=False, indent=2)
+    compact = json.dumps(data.get("timestamps", []), ensure_ascii=False,
+                         separators=(", ", ": "))
+    return content.replace(json.dumps(_TIMESTAMPS_PLACEHOLDER), compact)
+
+
+def write_cache(cache_path: Path, data: dict):
+    cache_path.write_text(format_cache_json(data), encoding="utf-8")
+
+
 def transcribe_movie(audio_path: str, language: str, cache_path: Path, force: bool) -> dict:
     """整体转写，结果缓存为 JSON（词级时间戳），避免长电影重复识别"""
     if cache_path.exists() and not force:
@@ -139,7 +157,7 @@ def transcribe_movie(audio_path: str, language: str, cache_path: Path, force: bo
         "timestamps": [[s, e, w] for (s, e, w) in result.get("timestamps", [])],
         "language": language,
     }
-    cache_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    write_cache(cache_path, data)
     logger.info(f"转写完成: {time.time() - t0:.0f}s，{len(data['timestamps'])} 个词，已缓存到 {cache_path}")
     return data
 
@@ -261,9 +279,11 @@ def main():
         vocals_path = out_dir / "_movie_vocals.wav"
         if not vocals_path.exists():
             logger.info(f"demucs 分离人声（model={cfg.model_name}），约为时长的 1/40~1/70...")
+            # 注意：必须喂提取好的 wav 而不是 mkv 原片——demucs 自带的容器解码器
+            # 在长视频上会丢样本导致人声轨时间轴漂移（实测 90 分钟电影偏移数十秒）
             ok = separate_vocals_to_16k_mono(
                 file_id=f"split_{movie_path.stem[:20]}",
-                input_path=str(movie_path),
+                input_path=asr_input,
                 output_path=str(vocals_path),
                 model_name=cfg.model_name,
                 repo_path=cfg.repo_path,

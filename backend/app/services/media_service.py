@@ -244,10 +244,17 @@ class MediaService:
                 logger.warning(f"Failed to read vocals marker, re-separating vocals for {file_id}")
 
         try:
-            logger.info(f"Separating vocals from {media_file.file_path} (model={model_name})")
+            # demucs 必须喂提取好的 wav 而不是原始容器文件（mkv/mp4）——
+            # demucs 自带的容器解码器在长视频上会丢样本，导致人声轨时间轴漂移
+            audio_path = self.extract_audio_from_media(file_id)
+            if not audio_path or not os.path.exists(audio_path):
+                logger.error(f"Failed to extract audio for vocal separation: {file_id}")
+                return None
+
+            logger.info(f"Separating vocals from {audio_path} (model={model_name})")
             success = separate_vocals_to_16k_mono(
                 file_id=file_id,
-                input_path=media_file.file_path,
+                input_path=audio_path,
                 output_path=vocals_path,
                 model_name=model_name,
                 repo_path=repo_path,

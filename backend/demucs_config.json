@@ -2,5 +2,5 @@
   "enabled": true,
   "model_name": "htdemucs",
   "repo_path": "D:\\adefossez\\HTDemucs",
-  "playback_use_vocals": true
+  "playback_use_vocals": false
 }
