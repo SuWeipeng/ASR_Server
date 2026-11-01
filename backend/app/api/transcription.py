@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from typing import Optional
 from pathlib import Path
+import asyncio
 
 from app.services.subtitle_service import subtitle_service
 from app.services.media_service import media_service
@@ -49,13 +50,15 @@ async def generate_subtitles(
         if not media_file:
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Generate subtitles
-        result = subtitle_service.generate_subtitles(
+        # Generate subtitles (VAD + full ASR inference can run for minutes on
+        # long videos; offload so the event loop stays free to stream media)
+        result = await asyncio.to_thread(
+            subtitle_service.generate_subtitles,
             file_id=request.file_id,
             language=request.language.value,
             use_alignment=True,
             use_vad=request.use_vad,
-            force_refresh=request.force_refresh
+            force_refresh=request.force_refresh,
         )
 
         if not result:

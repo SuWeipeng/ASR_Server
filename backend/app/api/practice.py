@@ -1,6 +1,8 @@
 """
 Practice and evaluation API routes
 """
+import asyncio
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from app.services.evaluation_service import evaluation_service
 from app.models.schemas import (
@@ -31,11 +33,13 @@ async def evaluate_practice(
     try:
         logger.info(f"Evaluating practice, target: {target_text[:50]}...")
 
-        # Evaluate
-        result = evaluation_service.evaluate_recording(
+        # Evaluate (ASR inference is CPU/GPU-heavy; offload so the event loop
+        # stays free to stream media files while the user keeps watching)
+        result = await asyncio.to_thread(
+            evaluation_service.evaluate_recording,
             audio_file=audio,
             target_text=target_text,
-            language=language
+            language=language,
         )
 
         # Convert to response format

@@ -4,6 +4,7 @@ Media upload and processing API routes
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import FileResponse
 from typing import Optional
+import asyncio
 import os
 from app.services.media_service import media_service
 from app.models.schemas import (
@@ -127,7 +128,11 @@ async def get_extracted_audio(file_id: str):
     """
     Get extracted audio file by file ID
     """
-    audio_path = media_service.extract_audio_from_media(file_id)
+    # ffmpeg extraction of a long video can take seconds; run it in a worker
+    # thread so the event loop stays free to stream media files
+    audio_path = await asyncio.to_thread(
+        media_service.extract_audio_from_media, file_id
+    )
 
     if not audio_path or not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail="Audio not found")
@@ -155,11 +160,16 @@ async def get_waveform_data(
     if waveform_service is None:
         raise HTTPException(status_code=503, detail="Waveform service not available")
 
-    result = waveform_service.get_waveform_data(
+    # librosa.load + pyin pitch tracking are CPU-heavy (seconds per call for a
+    # sentence). Running them inline blocks the event loop, which stalls all
+    # other requests - including the video element's range requests, causing
+    # playback freezes. Offload to a worker thread instead.
+    result = await asyncio.to_thread(
+        waveform_service.get_waveform_data,
         file_id=file_id,
         start_time=start_time,
         end_time=end_time,
-        num_points=num_points
+        num_points=num_points,
     )
 
     if not result:
