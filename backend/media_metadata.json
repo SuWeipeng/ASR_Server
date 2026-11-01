@@ -52,5 +52,14 @@
     "file_size": 189005769,
     "duration": 648.068934,
     "upload_time": "2026-10-30T08:24:46.940280"
+  },
+  "fac615eb-b844-466f-afcf-bd8fb1f7653c": {
+    "file_id": "fac615eb-b844-466f-afcf-bd8fb1f7653c",
+    "original_filename": "7.mp4",
+    "file_path": "D:\\ASR_Server\\uploads\\fac615eb-b844-466f-afcf-bd8fb1f7653c.mp4",
+    "file_type": "video",
+    "file_size": 32554575,
+    "duration": 1022.955102,
+    "upload_time": "2026-11-02T01:04:42.709751"
   }
 }
