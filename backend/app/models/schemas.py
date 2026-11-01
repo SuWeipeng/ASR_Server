@@ -102,6 +102,7 @@ class TranscriptionGenerateResponse(BaseModel):
     duration: float
     processing_time: float = Field(..., description="Processing time in seconds")
     message: str
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Processing metadata (vad/demucs info)")
 
 
 class DiffWordResult(BaseModel):
@@ -155,6 +156,7 @@ class SystemStatus(BaseModel):
     model_size: Optional[str] = None
     model_device: Optional[str] = None
     ffmpeg_available: bool
+    demucs_available: bool = False
     uptime: float = Field(..., description="Server uptime in seconds")
     version: str
 
@@ -237,3 +239,22 @@ class NoiseReductionConfigUpdateRequest(BaseModel):
     order: Optional[int] = Field(None, ge=1, le=8)
     filter_type: Optional[str] = Field(None, pattern="^(bandpass|highpass|lowpass)$")
     normalize_after_filter: Optional[bool] = None
+
+
+# ===== demucs 人声分离配置 Schemas =====
+
+class DemucsConfigResponse(BaseModel):
+    """demucs 配置响应"""
+    enabled: bool
+    model_name: str
+    repo_path: str
+    playback_use_vocals: bool
+    demucs_available: bool = Field(..., description="demucs 是否已安装（当前 Python 环境）")
+
+
+class DemucsConfigUpdateRequest(BaseModel):
+    """demucs 配置更新请求（所有字段可选）"""
+    enabled: Optional[bool] = None
+    model_name: Optional[str] = Field(None, min_length=1)
+    repo_path: Optional[str] = None
+    playback_use_vocals: Optional[bool] = None

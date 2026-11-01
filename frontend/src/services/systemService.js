@@ -82,4 +82,29 @@ export const systemService = {
   resetNoiseConfig: async () => {
     return await api.post('/noise/config/reset');
   },
+
+  /**
+   * Get demucs vocal separation configuration
+   * @returns {Promise} demucs configuration (includes demucs_available)
+   */
+  getDemucsConfig: async () => {
+    return await api.get('/demucs/config');
+  },
+
+  /**
+   * Update demucs configuration
+   * @param {Object} config - demucs configuration updates
+   * @returns {Promise} Updated demucs configuration
+   */
+  updateDemucsConfig: async (config) => {
+    return await api.put('/demucs/config', config);
+  },
+
+  /**
+   * Reset demucs configuration to defaults
+   * @returns {Promise} Reset demucs configuration
+   */
+  resetDemucsConfig: async () => {
+    return await api.post('/demucs/config/reset');
+  },
 };

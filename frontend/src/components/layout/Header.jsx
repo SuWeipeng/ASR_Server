@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Upload, Settings, HelpCircle, Moon, Sun } from 'lucide-react';
-import { toggleTheme, toggleSettings } from '../../store/uiSlice';
+import { Upload, Settings, HelpCircle, Moon, Sun, AudioLines } from 'lucide-react';
+import { toggleTheme, toggleSettings, getDemucsConfig, updateDemucsConfig } from '../../store/uiSlice';
 import { SHORTCUT_DESCRIPTIONS, formatShortcut } from '../../utils/shortcuts';
 
 export const Header = () => {
@@ -10,9 +10,27 @@ export const Header = () => {
   const systemStatus = useSelector((state) => state.ui.systemStatus);
   const fileId = useSelector((state) => state.media.fileId);
   const isProcessing = useSelector((state) => state.media.isProcessing);
+  const demucsConfig = useSelector((state) => state.ui.demucsConfig);
+  const demucsConfigLoading = useSelector((state) => state.ui.demucsConfigLoading);
 
   // Check if model is ready for file upload
   const isModelReady = systemStatus?.model_loaded;
+
+  // demucs 可用（启动检测结果）时在顶栏显示人声音轨快捷开关
+  const demucsAvailable = systemStatus?.demucs_available ?? false;
+  const playbackUseVocals = demucsConfig?.playback_use_vocals ?? false;
+
+  // 开关可见但配置还没加载过（从未打开设置页）时拉取一次
+  useEffect(() => {
+    if (demucsAvailable && !demucsConfig && !demucsConfigLoading) {
+      dispatch(getDemucsConfig());
+    }
+  }, [demucsAvailable, demucsConfig, demucsConfigLoading, dispatch]);
+
+  // 与设置页的开关同一接口，即时持久化，两处状态天然同步
+  const handleToggleVocals = () => {
+    dispatch(updateDemucsConfig({ playback_use_vocals: !playbackUseVocals }));
+  };
 
   const handleFileUpload = () => {
     // Prevent upload if model is not ready
@@ -78,6 +96,22 @@ export const Header = () => {
 
       {/* Right: Actions */}
       <div className="flex items-center space-x-2">
+        {demucsAvailable && (
+          <button
+            onClick={handleToggleVocals}
+            disabled={!demucsConfig}
+            className={`p-2 rounded-lg transition-colors ${
+              playbackUseVocals
+                ? 'bg-primary/20 hover:bg-primary/30'
+                : 'hover:bg-bg-card'
+            } ${!demucsConfig ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title={playbackUseVocals
+              ? '播放时使用人声音轨：已开启，播放分离出的干净人声（点击切回视频原声）'
+              : '播放时使用人声音轨：已关闭，播放视频原声（若视频已用人声分离生成过字幕，点击切换为干净人声）'}
+          >
+            <AudioLines size={20} className={playbackUseVocals ? 'text-primary' : 'text-text-primary'} />
+          </button>
+        )}
         <button
           onClick={() => dispatch(toggleTheme())}
           className="p-2 rounded-lg hover:bg-bg-card transition-colors"

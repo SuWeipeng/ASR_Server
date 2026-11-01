@@ -6,7 +6,7 @@ import torch
 from fastapi import APIRouter
 from app.services.asr_service import asr_service
 from app.services.alignment_service import alignment_service
-from app.utils import check_ffmpeg_available, ensure_directories, logger
+from app.utils import check_ffmpeg_available, ensure_directories, logger, check_demucs_available
 from app.models.schemas import SystemStatus, HealthCheckResponse
 from app.config import settings
 
@@ -53,6 +53,7 @@ async def get_system_status():
             model_size=model_info.get("model_size"),
             model_device=model_info.get("device"),
             ffmpeg_available=ffmpeg_available,
+            demucs_available=check_demucs_available(),
             uptime=uptime,
             version="1.0.0"
         )

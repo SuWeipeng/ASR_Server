@@ -26,6 +26,8 @@ export const VideoPlayer = forwardRef((props, ref) => {
   }, [ref]);
 
   const fileId = useSelector((state) => state.media.fileId);
+  const playbackUseVocals = useSelector((state) => state.ui.demucsConfig?.playback_use_vocals);
+  const transcriptionMetadata = useSelector((state) => state.subtitle.transcriptionMetadata);
   const isPlaying = useSelector((state) => state.player.isPlaying);
   const currentTime = useSelector((state) => state.player.currentTime);
   const duration = useSelector((state) => state.player.duration);
@@ -42,6 +44,17 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const [progress, setProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
+  // 人声音轨：播放偏好开启且当前视频由 demucs 生成字幕时，叠加 audio 元素播放人声
+  const audioRef = useRef(null);
+  // vocals 文件可能已被清理（404）时回退原声
+  const [vocalsAvailable, setVocalsAvailable] = useState(true);
+  const useVocals = !!(playbackUseVocals && transcriptionMetadata?.used_demucs && vocalsAvailable);
+
+  // 切换文件时重置回退状态
+  useEffect(() => {
+    setVocalsAvailable(true);
+  }, [fileId]);
+
   // Model status check for drag upload
   const systemStatus = useSelector((state) => state.ui.systemStatus);
   const isModelReady = systemStatus?.model_loaded;
@@ -54,11 +67,55 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const subtitlesRef = useRef(subtitles);
   const currentSubtitleIndexRef = useRef(currentSubtitleIndex);
   const durationRef = useRef(duration);
+  const isPlayingRef = useRef(isPlaying);
   useEffect(() => { subtitlesRef.current = subtitles; }, [subtitles]);
   useEffect(() => { currentSubtitleIndexRef.current = currentSubtitleIndex; }, [currentSubtitleIndex]);
   useEffect(() => { durationRef.current = duration; }, [duration]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
-  usePlayerSync(videoRef);
+  usePlayerSync(videoRef, audioRef);
+
+  // 分离窗口"放回主窗口"时本组件重新挂载：捕获 Redux 中的播放进度
+  // （由独立窗口经 STATE_UPDATE 回传），视频元数据加载后 seek 过去，避免跳回开头。
+  // 仅挂载时捕获一次——上传新文件不会重挂载本组件，不会误跳。
+  const reduxCurrentTime = useSelector((state) => state.player.currentTime);
+  const initialSeekRef = useRef(reduxCurrentTime > 0.5 ? reduxCurrentTime : null);
+  const initialSeekPendingRef = useRef(false);
+  useEffect(() => {
+    const video = videoRef.current;
+    const target = initialSeekRef.current;
+    if (!video || target === null) return;
+    initialSeekRef.current = null;
+    // seek 期间拦截自动起播，避免先从 0 播放一小段再跳转
+    initialSeekPendingRef.current = true;
+
+    const finishSeek = () => {
+      initialSeekPendingRef.current = false;
+      if (isPlayingRef.current) {
+        video.play().catch(console.error);
+        const audio = audioRef.current;
+        if (audio) {
+          audio.currentTime = video.currentTime;
+          if (!video.seeking) {
+            audio.play().catch(() => {});
+          }
+        }
+      }
+    };
+    const seekToTarget = () => {
+      video.currentTime = target;
+      if (video.seeking) {
+        video.addEventListener('seeked', finishSeek, { once: true });
+      } else {
+        finishSeek();
+      }
+    };
+    if (video.readyState >= 1) {
+      seekToTarget();
+    } else {
+      video.addEventListener('loadedmetadata', seekToTarget, { once: true });
+    }
+  }, []);
 
   // Compute a seek time from a pointer/touch position relative to the bar.
   const computeTimeFromEvent = useCallback((clientX) => {
@@ -192,13 +249,19 @@ export const VideoPlayer = forwardRef((props, ref) => {
     if (videoRef.current) {
       videoRef.current.volume = newVolume;
     }
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
   };
 
   // Handle mute toggle
   const toggleMute = () => {
     dispatch(setMuted(!isMuted));
     if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
+      videoRef.current.muted = !isMuted || useVocals;
+    }
+    if (audioRef.current) {
+      audioRef.current.muted = !isMuted;
     }
   };
 
@@ -260,25 +323,92 @@ export const VideoPlayer = forwardRef((props, ref) => {
     window.dispatchEvent(new CustomEvent('fileUpload', { detail: file }));
   }, [isModelReady]);
 
-  // Sync play state with video
+  // Sync play state with video (and vocals audio)
   // Only depends on isPlaying - let video element be the source of truth during playback
   useEffect(() => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.play().catch(console.error);
-      } else {
-        videoRef.current.pause();
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    // 初始 seek（分离窗口放回时的进度恢复）完成前不自动起播
+    const pendingInitialSeek = initialSeekPendingRef.current;
+    if (video) {
+      if (isPlaying && !pendingInitialSeek) {
+        video.play().catch(console.error);
+      } else if (!isPlaying) {
+        video.pause();
       }
     }
-  }, [isPlaying]);
+    if (audio && video) {
+      // 先对齐时间轴；video 仍在 seek 时不先出声，等 seeked 后再一起播放
+      // （否则 audio 抢跑后被 seeked 对齐拽回句首，造成开头单词重复的回声）
+      audio.currentTime = video.currentTime;
+      if (isPlaying && !pendingInitialSeek && !video.seeking) {
+        audio.play().catch(console.error);
+      } else if (!isPlaying) {
+        audio.pause();
+      }
+    }
+  }, [isPlaying, useVocals, fileId]);
 
-  // Sync volume with video
+  // Sync volume/mute/playbackRate with video and vocals audio
+  // 人声模式下 video 静音、audio 承担声音输出。fileId 入 deps：
+  // 切换文件时 video 元素被重建（muted 默认 false），必须重新静音，否则双声叠加
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume;
-      videoRef.current.muted = isMuted;
+      videoRef.current.muted = isMuted || useVocals;
     }
-  }, [volume, isMuted]);
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      audioRef.current.muted = isMuted;
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [volume, isMuted, playbackRate, useVocals, fileId]);
+
+  // 人声模式：video 的 seek 期间暂停 audio，seeked 后对齐时间轴再一起起播，
+  // 避免 audio 抢跑后被拽回句首（单句播放开头 "In In fact" 式重复词回声）。
+  // 覆盖：字幕点击跳转 / 进度条拖拽 / 单句循环回跳。
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !useVocals) return;
+
+    const handleSeeking = () => {
+      const audio = audioRef.current;
+      if (audio && isPlayingRef.current) {
+        audio.pause();
+      }
+    };
+    const handleSeeked = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.currentTime = video.currentTime;
+      if (isPlayingRef.current) {
+        audio.play().catch(() => {});
+      }
+    };
+    // audio 缓冲就绪即起播兜底：弹窗打开时 wav 从中间位置缓冲可能滞后于视频，
+    // 等它有数据了立即跟上，而不是依赖某一次 play() 调用恰好落在可用时机上
+    const handleAudioCanPlay = () => {
+      const audio = audioRef.current;
+      if (audio && isPlayingRef.current && audio.paused && !video.seeking) {
+        audio.play().catch(() => {});
+      }
+    };
+    video.addEventListener('seeking', handleSeeking);
+    video.addEventListener('seeked', handleSeeked);
+    const audioEl = audioRef.current;
+    if (audioEl) {
+      audioEl.addEventListener('canplay', handleAudioCanPlay);
+      audioEl.addEventListener('loadeddata', handleAudioCanPlay);
+    }
+    return () => {
+      video.removeEventListener('seeking', handleSeeking);
+      video.removeEventListener('seeked', handleSeeked);
+      if (audioEl) {
+        audioEl.removeEventListener('canplay', handleAudioCanPlay);
+        audioEl.removeEventListener('loadeddata', handleAudioCanPlay);
+      }
+    };
+  }, [useVocals, fileId]);
 
   if (!fileId) {
     return (
@@ -340,6 +470,20 @@ export const VideoPlayer = forwardRef((props, ref) => {
             console.error('[VideoPlayer] Video error:', e);
           }}
         />
+
+        {/* 人声音轨（video 静音，audio 跟随 video 时钟播放） */}
+        {useVocals && (
+          <audio
+            key={fileId}
+            ref={audioRef}
+            src={mediaService.getVocalsUrl(fileId)}
+            preload="auto"
+            onError={(e) => {
+              console.warn('[VideoPlayer] Vocals audio unavailable, falling back to original audio:', e);
+              setVocalsAvailable(false);
+            }}
+          />
+        )}
 
         {/* Center play overlay - only when not playing */}
         {!isPlaying && (

@@ -9,6 +9,7 @@ const MSG_TYPES = {
   STATE_UPDATE: 'STATE_UPDATE',
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
   PLAY_PAUSE: 'PLAY_PAUSE',
+  USE_VOCALS: 'USE_VOCALS',
   RECORDING_START: 'RECORDING_START',
   RECORDING_STOP: 'RECORDING_STOP',
 };
@@ -48,6 +49,11 @@ function PlayerWindowApp() {
         case MSG_TYPES.PLAY_PAUSE:
           // 主窗口请求切换播放/暂停
           setPlayPauseRequest(prev => prev + 1);
+          break;
+
+        case MSG_TYPES.USE_VOCALS:
+          // 主窗口更新了"播放时使用人声音轨"，合并进 initialState
+          setInitialState(prev => (prev ? { ...prev, useVocals: !!payload?.useVocals } : prev));
           break;
 
         case MSG_TYPES.CLOSE:

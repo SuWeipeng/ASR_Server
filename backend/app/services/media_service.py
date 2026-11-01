@@ -19,6 +19,7 @@ from app.utils import (
     validate_file_size,
     extract_audio,
     get_audio_duration,
+    separate_vocals_to_16k_mono,
 )
 from app.models.domain import MediaFile
 from app.models.schemas import MediaType
@@ -203,6 +204,70 @@ class MediaService:
             logger.error(f"Audio extraction failed: {e}")
             return None
 
+    def separate_vocals_from_media(
+        self,
+        file_id: str,
+        model_name: str,
+        repo_path: str,
+        duration: Optional[float] = None
+    ) -> Optional[str]:
+        """
+        Separate vocals from media file using demucs
+
+        Args:
+            file_id: File ID
+            model_name: demucs model name (e.g. htdemucs)
+            repo_path: Local model repo path (empty = download from HuggingFace)
+            duration: Media duration in seconds (for subprocess timeout)
+
+        Returns:
+            Path to separated vocals WAV (16kHz mono), or None if failed
+        """
+        if file_id not in self._files:
+            logger.error(f"File not found: {file_id}")
+            return None
+
+        media_file = self._files[file_id]
+        vocals_path = get_temp_path(f"{file_id}_vocals", ".wav")
+        marker_path = get_temp_path(f"{file_id}_vocals", ".json")
+
+        # 已存在且模型指纹一致（未换模型/仓库）时直接复用
+        if os.path.exists(vocals_path) and os.path.exists(marker_path):
+            try:
+                with open(marker_path, 'r', encoding='utf-8') as f:
+                    marker = json.load(f)
+                if marker.get("model_name") == model_name and marker.get("repo_path") == repo_path:
+                    logger.debug(f"Using cached vocals: {vocals_path}")
+                    return vocals_path
+                logger.info(f"Model fingerprint changed, re-separating vocals for {file_id}")
+            except Exception:
+                logger.warning(f"Failed to read vocals marker, re-separating vocals for {file_id}")
+
+        try:
+            logger.info(f"Separating vocals from {media_file.file_path} (model={model_name})")
+            success = separate_vocals_to_16k_mono(
+                file_id=file_id,
+                input_path=media_file.file_path,
+                output_path=vocals_path,
+                model_name=model_name,
+                repo_path=repo_path,
+                duration=duration or media_file.duration
+            )
+
+            if success:
+                # 写模型指纹 marker，用于换模型后缓存失效
+                with open(marker_path, 'w', encoding='utf-8') as f:
+                    json.dump({"model_name": model_name, "repo_path": repo_path}, f)
+                logger.info(f"Vocals separated: {vocals_path}")
+                return vocals_path
+            else:
+                logger.error("Failed to separate vocals")
+                return None
+
+        except Exception as e:
+            logger.error(f"Vocal separation failed: {e}")
+            return None
+
     def get_file(self, file_id: str) -> Optional[MediaFile]:
         """
         Get media file by ID
@@ -249,6 +314,10 @@ class MediaService:
         # Delete extracted audio
         audio_path = get_temp_path(file_id, ".wav")
         cleanup_file(audio_path)
+
+        # Delete separated vocals and its model fingerprint marker
+        cleanup_file(get_temp_path(f"{file_id}_vocals", ".wav"))
+        cleanup_file(get_temp_path(f"{file_id}_vocals", ".json"))
 
         # Remove from memory
         del self._files[file_id]

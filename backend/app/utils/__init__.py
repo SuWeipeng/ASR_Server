@@ -20,6 +20,7 @@ from app.utils.ffmpeg import (
     get_media_info,
     convert_audio_format,
     extract_audio_segment,
+    extract_audio_clip,
     check_ffmpeg_on_startup,
     FFmpegError
 )
@@ -29,6 +30,11 @@ from app.utils.audio import (
     prepare_audio_for_asr,
     calculate_audio_duration,
     get_audio_energy
+)
+from app.utils.demucs import (
+    check_demucs_available,
+    check_demucs_on_startup,
+    separate_vocals_to_16k_mono
 )
 from app.utils.text_diff import (
     normalize_text,
@@ -57,6 +63,7 @@ __all__ = [
     "get_media_info",
     "convert_audio_format",
     "extract_audio_segment",
+    "extract_audio_clip",
     "check_ffmpeg_on_startup",
     "FFmpegError",
     "load_audio",
@@ -64,6 +71,9 @@ __all__ = [
     "prepare_audio_for_asr",
     "calculate_audio_duration",
     "get_audio_energy",
+    "check_demucs_available",
+    "check_demucs_on_startup",
+    "separate_vocals_to_16k_mono",
     "normalize_text",
     "calculate_similarity",
     "compare_texts",

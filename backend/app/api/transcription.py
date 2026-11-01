@@ -108,7 +108,8 @@ async def generate_subtitles(
             full_text=result.full_text,
             duration=result.duration,
             processing_time=result.processing_time,
-            message="Subtitles generated successfully"
+            message="Subtitles generated successfully",
+            metadata=result.metadata
         )
 
         # Debug: log the final response data structure
@@ -198,7 +199,8 @@ async def get_subtitles(file_id: str):
         full_text=result.full_text,
         duration=result.duration,
         processing_time=result.processing_time,
-        message="Subtitles retrieved"
+        message="Subtitles retrieved",
+        metadata=result.metadata
     )
 
 
@@ -391,7 +393,8 @@ async def load_cached_subtitles(file_id: str):
             full_text=result.full_text,
             duration=result.duration,
             processing_time=result.processing_time,
-            message="Subtitles loaded from cache"
+            message="Subtitles loaded from cache",
+            metadata=result.metadata
         )
 
     except HTTPException:

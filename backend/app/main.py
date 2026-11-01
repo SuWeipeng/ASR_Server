@@ -18,6 +18,7 @@ from app.utils import (
     logger,
     ensure_directories,
     check_ffmpeg_on_startup,
+    check_demucs_on_startup,
 )
 from app.services.asr_service import asr_service
 
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
 
     # Check FFmpeg availability
     check_ffmpeg_on_startup()
+
+    # Check demucs availability (optional, vocal separation feature)
+    check_demucs_on_startup()
 
     # Preload ASR model in background
     logger.info("Preloading Qwen3-ASR Model...")

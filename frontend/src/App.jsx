@@ -11,6 +11,7 @@ import { generateSubtitles, loadCachedSubtitles, setCurrentSubtitleIndex } from 
 import { setRecording } from './store/practiceSlice';
 import { getSystemStatus } from './store/uiSlice';
 import { setError as setUIError } from './store/uiSlice';
+import { selectPlaybackUseVocals } from './store/uiSlice';
 import { attachPlayer, setPlaying, setVolume, setMuted, setCurrentTime } from './store/playerSlice';
 import { store } from './store';
 import { transcriptionService } from './services/transcriptionService';
@@ -23,6 +24,7 @@ const MSG_TYPES = {
   STATE_UPDATE: 'STATE_UPDATE',
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
   PLAY_PAUSE: 'PLAY_PAUSE',
+  USE_VOCALS: 'USE_VOCALS',
   RECORDING_START: 'RECORDING_START',
   RECORDING_STOP: 'RECORDING_STOP',
 };
@@ -65,6 +67,19 @@ function App() {
   const isProcessing = useSelector((state) => state.media.isProcessing);
   const uiError = useSelector((state) => state.ui.error);
   const theme = useSelector((state) => state.ui.theme);
+  const playbackUseVocals = useSelector(selectPlaybackUseVocals);
+
+  // 播放器分离时，"播放时使用人声音轨"变化实时同步到独立窗口。
+  // 注意：负责推送 SYNC_STATE 的 usePlayerWindow 挂在 VideoPlayer 里，
+  // 分离后 VideoPlayer 已卸载（其 channel 也关闭了），所以由这里补发。
+  useEffect(() => {
+    if (isDetached && window.playerWindowChannel) {
+      window.playerWindowChannel.postMessage({
+        type: MSG_TYPES.USE_VOCALS,
+        payload: { useVocals: playbackUseVocals },
+      });
+    }
+  }, [playbackUseVocals, isDetached]);
 
   // Initialize system with polling for model loading
   useEffect(() => {
@@ -154,6 +169,7 @@ function App() {
                 player: state.player,
                 subtitle: state.subtitle,
                 fileId: state.media.fileId,
+                useVocals: selectPlaybackUseVocals(state),
               },
             });
             break;

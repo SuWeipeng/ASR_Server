@@ -12,9 +12,11 @@ import { setCurrentSubtitleIndex } from '../store/subtitleSlice';
 /**
  * Custom hook for player synchronization with subtitles
  * @param {React.MutableRefObject<HTMLMediaElement>} mediaRef - Ref to the video or audio element
+ * @param {React.MutableRefObject<HTMLAudioElement>} [audioRef] - Optional ref to the vocals audio
+ *   element (slave clock, follows the video element)
  * @returns {Object} Sync functions
  */
-export const usePlayerSync = (mediaRef) => {
+export const usePlayerSync = (mediaRef, audioRef) => {
   const dispatch = useDispatch();
   const subtitles = useSelector((state) => state.subtitle.filteredSubtitles);
   const loopMode = useSelector((state) => state.player.loopMode);
@@ -87,7 +89,14 @@ export const usePlayerSync = (mediaRef) => {
         mediaElement.currentTime = loopStart;
       }
     }
-  }, [mediaRef, dispatch, updateCurrentSubtitle, loopMode, loopStart, loopEnd, isSeeking, singleSentenceMode, singleSentenceEnd]);
+
+    // 人声模式：audio 元素从属于 video 时钟，漂移超阈值时硬追平
+    const audioElement = audioRef?.current;
+    if (audioElement && !audioElement.paused &&
+        Math.abs(audioElement.currentTime - currentTime) > 0.15) {
+      audioElement.currentTime = currentTime;
+    }
+  }, [mediaRef, audioRef, dispatch, updateCurrentSubtitle, loopMode, loopStart, loopEnd, isSeeking, singleSentenceMode, singleSentenceEnd]);
 
   /**
    * Handle loaded metadata event
@@ -134,7 +143,11 @@ export const usePlayerSync = (mediaRef) => {
     if (mediaElement && mediaElement.playbackRate !== playbackRate) {
       mediaElement.playbackRate = playbackRate;
     }
-  }, [mediaRef, playbackRate]);
+    const audioElement = audioRef?.current;
+    if (audioElement && audioElement.playbackRate !== playbackRate) {
+      audioElement.playbackRate = playbackRate;
+    }
+  }, [mediaRef, audioRef, playbackRate]);
 
   return {
     updateCurrentSubtitle,

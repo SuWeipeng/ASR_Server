@@ -4,7 +4,7 @@ Waveform generation service for audio visualization
 import os
 import numpy as np
 from typing import Dict, List, Optional, Tuple
-from app.utils import logger
+from app.utils import logger, get_temp_path
 from app.services.media_service import media_service
 import librosa
 
@@ -20,7 +20,8 @@ class WaveformService:
         file_id: str,
         start_time: float = 0,
         end_time: Optional[float] = None,
-        num_points: int = 500
+        num_points: int = 500,
+        use_vocals: bool = False
     ) -> Optional[Dict]:
         """
         Generate waveform data for visualization
@@ -30,13 +31,17 @@ class WaveformService:
             start_time: Start time in seconds
             end_time: End time in seconds (None for full duration)
             num_points: Number of data points to generate
+            use_vocals: Prefer demucs-separated vocals as the audio source
+                (background music pollutes amplitude RMS and pyin pitch
+                detection; vocals give a clean reference). Falls back to the
+                original audio when no vocals file exists.
 
         Returns:
             Dictionary with amplitude and optionally pitch data
         """
         try:
             # Check cache
-            cache_key = f"{file_id}_{start_time}_{end_time}_{num_points}"
+            cache_key = f"{file_id}_{start_time}_{end_time}_{num_points}_vocals_{use_vocals}"
             if cache_key in self._cache:
                 return self._cache[cache_key]
 
@@ -47,10 +52,18 @@ class WaveformService:
                 return None
 
             # Get audio file path
-            if media_file.file_type == 'video':
-                audio_path = media_service.extract_audio_from_media(file_id)
-            else:
-                audio_path = media_file.file_path
+            audio_path = None
+            if use_vocals:
+                vocals_path = get_temp_path(f"{file_id}_vocals", ".wav")
+                if os.path.exists(vocals_path):
+                    audio_path = vocals_path
+                else:
+                    logger.debug(f"No vocals file for {file_id}, using original audio")
+            if not audio_path:
+                if media_file.file_type == 'video':
+                    audio_path = media_service.extract_audio_from_media(file_id)
+                else:
+                    audio_path = media_file.file_path
 
             if not audio_path or not os.path.exists(audio_path):
                 logger.error(f"Audio file not found: {audio_path}")

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { X, RotateCcw, Mic } from 'lucide-react';
-import { getVADConfig, updateVADConfig, getNoiseConfig, updateNoiseConfig, toggleSettings, setMicDeviceId, setMicNoiseConfig } from '../../store/uiSlice';
+import { getVADConfig, updateVADConfig, getNoiseConfig, updateNoiseConfig, getDemucsConfig, updateDemucsConfig, toggleSettings, setMicDeviceId, setMicNoiseConfig } from '../../store/uiSlice';
 import { store } from '../../store';
 import { generateSubtitles } from '../../store/subtitleSlice';
 
@@ -14,6 +14,11 @@ export const SettingsModal = () => {
   const noiseConfig = useSelector((state) => state.ui.noiseConfig);
   const noiseConfigLoading = useSelector((state) => state.ui.noiseConfigLoading);
   const noiseConfigError = useSelector((state) => state.ui.noiseConfigError);
+  const demucsConfig = useSelector((state) => state.ui.demucsConfig);
+  const demucsConfigLoading = useSelector((state) => state.ui.demucsConfigLoading);
+  const demucsConfigError = useSelector((state) => state.ui.demucsConfigError);
+  const systemStatus = useSelector((state) => state.ui.systemStatus);
+  const transcriptionMetadata = useSelector((state) => state.subtitle.transcriptionMetadata);
   const fileId = useSelector((state) => state.media.fileId);
   const isProcessing = useSelector((state) => state.media.isProcessing);
   const selectedMicDeviceId = useSelector((state) => state.ui.selectedMicDeviceId);
@@ -53,6 +58,14 @@ export const SettingsModal = () => {
     order: 4,
     filter_type: 'bandpass',
     normalize_after_filter: true,
+  });
+
+  // demucs 人声分离表单状态
+  const [demucsFormData, setDemucsFormData] = useState({
+    enabled: false,
+    model_name: 'htdemucs',
+    repo_path: '',
+    playback_use_vocals: false,
   });
 
   // 当配置加载时更新表单
@@ -97,6 +110,18 @@ export const SettingsModal = () => {
     }
   }, [micNoiseConfig]);
 
+  // 当 demucs 配置加载时更新表单
+  useEffect(() => {
+    if (demucsConfig) {
+      setDemucsFormData({
+        enabled: demucsConfig.enabled ?? false,
+        model_name: demucsConfig.model_name || 'htdemucs',
+        repo_path: demucsConfig.repo_path ?? '',
+        playback_use_vocals: demucsConfig.playback_use_vocals ?? false,
+      });
+    }
+  }, [demucsConfig]);
+
   // 打开设置时加载配置
   useEffect(() => {
     if (showSettings && !vadConfig) {
@@ -105,7 +130,10 @@ export const SettingsModal = () => {
     if (showSettings && !noiseConfig) {
       dispatch(getNoiseConfig());
     }
-  }, [showSettings, vadConfig, noiseConfig, dispatch]);
+    if (showSettings && !demucsConfig) {
+      dispatch(getDemucsConfig());
+    }
+  }, [showSettings, vadConfig, noiseConfig, demucsConfig, dispatch]);
 
   // 枚举录音设备 + 监听热插拔
   const loadAudioInputs = useCallback(async () => {
@@ -159,6 +187,21 @@ export const SettingsModal = () => {
     setNoiseFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleDemucsInputChange = (field, value) => {
+    setDemucsFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // demucs 是否可用（后端检测结果，优先用配置接口返回值）
+  const demucsUsable = demucsConfig?.demucs_available ?? systemStatus?.demucs_available ?? false;
+
+  // 播放偏好是纯播放设置，点击立即保存生效（不触发字幕重新生成）
+  const handlePlaybackVocalsToggle = () => {
+    if (!demucsUsable) return;
+    const newValue = !demucsFormData.playback_use_vocals;
+    handleDemucsInputChange('playback_use_vocals', newValue);
+    dispatch(updateDemucsConfig({ playback_use_vocals: newValue }));
+  };
+
   const handleMicNoiseInputChange = (field, value) => {
     setMicNoiseFormData((prev) => ({ ...prev, [field]: value }));
     setMicNoiseHasChanges(true);
@@ -181,19 +224,45 @@ export const SettingsModal = () => {
       }
     });
 
-    if (Object.keys(vadUpdates).length === 0 && Object.keys(noiseUpdates).length === 0) {
+    // demucs 配置更新（区分影响字幕生成的字段与纯播放偏好的字段）
+    const demucsGenFields = ['enabled', 'model_name', 'repo_path'];
+    const demucsUpdates = {};
+    const demucsGenUpdates = {};
+    Object.keys(demucsFormData).forEach((key) => {
+      if (demucsConfig && demucsFormData[key] !== demucsConfig[key]) {
+        demucsUpdates[key] = demucsFormData[key];
+        if (demucsGenFields.includes(key)) {
+          demucsGenUpdates[key] = demucsFormData[key];
+        }
+      }
+    });
+
+    const hasUpdates =
+      Object.keys(vadUpdates).length > 0 ||
+      Object.keys(noiseUpdates).length > 0 ||
+      Object.keys(demucsUpdates).length > 0;
+    if (!hasUpdates) {
       dispatch(toggleSettings());
       return;
     }
 
+    // 只有影响字幕生成的配置变化才需要重新生成；纯播放偏好（playback_use_vocals）即时生效，无需重新生成
+    const shouldRegenerate =
+      Object.keys(vadUpdates).length > 0 ||
+      Object.keys(noiseUpdates).length > 0 ||
+      Object.keys(demucsGenUpdates).length > 0;
+
     try {
-      // 并发更新 VAD 和降噪配置
+      // 并发更新 VAD、降噪和 demucs 配置
       const promises = [];
       if (Object.keys(vadUpdates).length > 0) {
         promises.push(dispatch(updateVADConfig(vadUpdates)).unwrap());
       }
       if (Object.keys(noiseUpdates).length > 0) {
         promises.push(dispatch(updateNoiseConfig(noiseUpdates)).unwrap());
+      }
+      if (Object.keys(demucsUpdates).length > 0) {
+        promises.push(dispatch(updateDemucsConfig(demucsUpdates)).unwrap());
       }
 
       await Promise.all(promises);
@@ -204,7 +273,7 @@ export const SettingsModal = () => {
 
       // 配置更新成功后，如果有当前文件，强制刷新字幕（跳过缓存）
       // 在后台异步执行，不阻塞 UI
-      if (fileId) {
+      if (fileId && shouldRegenerate) {
         dispatch(generateSubtitles({ fileId, forceRefresh: true }))
           .unwrap()
           .catch((error) => {
@@ -254,6 +323,12 @@ export const SettingsModal = () => {
       order: 4,
       filter_type: 'bandpass',
       normalize_after_filter: true,
+    });
+    setDemucsFormData({
+      enabled: false,
+      model_name: 'htdemucs',
+      repo_path: '',
+      playback_use_vocals: false,
     });
     setMicNoiseHasChanges(false); // 重置变更状态
   };
@@ -632,6 +707,126 @@ export const SettingsModal = () => {
               )}
             </div>
 
+            {/* demucs 人声分离 */}
+            <div className="space-y-2 pt-2 border-t border-bg-card/50">
+              <div className="text-sm font-semibold text-text-primary">人声分离 (demucs)</div>
+
+              {demucsConfigLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="spinner w-6 h-6 border-2 border-primary border-t-transparent" />
+                </div>
+              )}
+
+              {demucsConfigError && (
+                <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-error text-sm">
+                  {demucsConfigError}
+                </div>
+              )}
+
+              {!demucsConfigLoading && demucsConfig && (
+                <>
+                  {/* 生成字幕时启用人声分离 */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-text-secondary">生成字幕时启用人声分离</label>
+                      <button
+                        type="button"
+                        disabled={!demucsUsable}
+                        onClick={() => demucsUsable && handleDemucsInputChange('enabled', !demucsFormData.enabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          demucsFormData.enabled ? 'bg-primary' : 'bg-bg-card'
+                        } ${!demucsUsable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            demucsFormData.enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {!demucsUsable && (
+                      <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-xs">
+                        未检测到 demucs：请在服务器 conda 环境中安装（pip install demucs）后重启服务
+                      </div>
+                    )}
+
+                    {/* 模型名称 */}
+                    <div className="space-y-2">
+                      <label className="text-sm text-text-secondary">
+                        模型名称
+                        <span className="text-xs text-text-tertiary ml-2">
+                          (默认 htdemucs)
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={demucsFormData.model_name}
+                        onChange={(e) => handleDemucsInputChange('model_name', e.target.value)}
+                        placeholder="htdemucs"
+                        className="input w-full px-3 py-1.5 text-sm"
+                      />
+                    </div>
+
+                    {/* 模型仓库路径 */}
+                    <div className="space-y-2">
+                      <label className="text-sm text-text-secondary">
+                        模型仓库路径
+                        <span className="text-xs text-text-tertiary ml-2">
+                          (本地模型目录，留空则联网下载)
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={demucsFormData.repo_path}
+                        onChange={(e) => handleDemucsInputChange('repo_path', e.target.value)}
+                        placeholder="D:\adefossez\HTDemucs"
+                        className="input w-full px-3 py-1.5 text-sm"
+                      />
+                    </div>
+
+                    {/* 播放时使用人声音轨（点击立即生效） */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-text-secondary">
+                        播放时使用人声音轨
+                        <span className="text-xs text-text-tertiary ml-2">
+                          (点击立即生效，仅对已用人声分离生成的视频生效)
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={!demucsUsable}
+                        onClick={handlePlaybackVocalsToggle}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          demucsFormData.playback_use_vocals ? 'bg-primary' : 'bg-bg-card'
+                        } ${!demucsUsable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            demucsFormData.playback_use_vocals ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* 当前视频没有人声分离结果时的提示 */}
+                    {demucsFormData.playback_use_vocals && fileId && !transcriptionMetadata?.used_demucs && (
+                      <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-xs">
+                        当前视频还没有人声分离结果：勾选上方"生成字幕时启用人声分离"并点保存，重新生成字幕后此开关才会生效
+                      </div>
+                    )}
+
+                    {/* 提示信息 */}
+                    <div className="p-3 bg-bg-card rounded-lg text-xs text-text-tertiary">
+                      <div className="font-medium mb-1">💡 人声分离说明</div>
+                      <div>• 启用后生成字幕时先分离出人声，消除背景音乐干扰，识别更准确</div>
+                      <div>• 分离需要额外时间（GPU 上约为音频时长的 10%~30%），长视频会明显变慢</div>
+                      <div>• 分离失败时自动回退用原声继续生成字幕</div>
+                      <div>• 同一视频的分离结果会复用，不会重复计算</div>
+                    </div>
+                </>
+              )}
+            </div>
+
             {/* VAD 参数 */}
             <div className="space-y-2 pt-2 border-t border-bg-card/50">
               <div className="text-sm font-semibold text-text-primary">VAD 参数</div>
@@ -756,14 +951,14 @@ export const SettingsModal = () => {
             {/* 音视频设置保存按钮 */}
             <button
               onClick={handleSave}
-              disabled={(vadConfigLoading || noiseConfigLoading) || isProcessing}
+              disabled={(vadConfigLoading || noiseConfigLoading || demucsConfigLoading) || isProcessing}
               className={`w-full px-4 py-2 text-sm rounded-lg transition-colors ${
-                (vadConfigLoading || noiseConfigLoading || isProcessing)
+                (vadConfigLoading || noiseConfigLoading || demucsConfigLoading || isProcessing)
                   ? 'bg-bg-tertiary text-text-tertiary cursor-not-allowed'
                   : 'bg-primary text-white hover:bg-primary-hover'
               }`}
             >
-              {(vadConfigLoading || noiseConfigLoading || isProcessing) ? '保存中...' : '保存并刷新字幕'}
+              {(vadConfigLoading || noiseConfigLoading || demucsConfigLoading || isProcessing) ? '保存中...' : '保存并刷新字幕'}
             </button>
           </div>
         </div>

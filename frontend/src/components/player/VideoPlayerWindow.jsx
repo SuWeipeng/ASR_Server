@@ -7,6 +7,7 @@ import { SHORTCUTS, isShortcutMatch } from '../../utils/shortcuts';
 
 export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, playPauseRequest, onStateUpdate, onClose }) {
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
   const containerRef = useRef(null);
   const progressBarRef = useRef(null);
   const isDraggingRef = useRef(false);
@@ -27,14 +28,40 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
   const [isRecordingLocal, setIsRecordingLocal] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
 
+  // 人声音轨：主窗口经 SYNC_STATE 下发（播放偏好 + 当前视频有人声文件）
+  const [useVocals, setUseVocals] = useState(initialState?.useVocals || false);
+  // vocals 文件可能已被清理（404）时回退原声
+  const [vocalsAvailable, setVocalsAvailable] = useState(true);
+  const useVocalsActive = useVocals && vocalsAvailable;
+
+  // 主窗口更新播放模式
+  useEffect(() => {
+    setUseVocals(!!initialState?.useVocals);
+  }, [initialState]);
+
+  // 切换文件时重置回退状态
+  useEffect(() => {
+    setVocalsAvailable(true);
+  }, [fileId]);
+
   // Refs for drag handlers
   const durationRef = useRef(duration);
   const singleSentenceModeRef = useRef(singleSentenceMode);
   const singleSentenceEndRef = useRef(singleSentenceEnd);
+  const isPlayingRef = useRef(isPlaying);
+  // 待恢复的播放位置（视频元数据加载后 seek 到这里）。
+  // 注意：本组件挂载时 initialState 已就绪（PlayerWindowApp 拿到 SYNC_STATE 后才渲染），
+  // useState 初始化器已消费了它，同步 effect 的 fileId 变化分支在挂载时不会执行，
+  // 所以必须用 useRef 初始化器捕获初始位置；fileId 变化（分离时换了新文件）由同步 effect 更新。
+  const initialPosition = initialState?.player?.currentTime;
+  const pendingSeekRef = useRef(
+    initialPosition && initialPosition > 0.5 ? initialPosition : null
+  );
 
   useEffect(() => { durationRef.current = duration; }, [duration]);
   useEffect(() => { singleSentenceModeRef.current = singleSentenceMode; }, [singleSentenceMode]);
   useEffect(() => { singleSentenceEndRef.current = singleSentenceEnd; }, [singleSentenceEnd]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   // Sync state from main window
   useEffect(() => {
@@ -47,8 +74,9 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
         setCurrentTime(initialState.player?.currentTime ?? 0);
         setVolume(initialState.player?.volume ?? 1.0);
         setIsMuted(initialState.player?.isMuted ?? false);
-        // 不要自动开始播放，让用户手动控制
-        setIsPlaying(false);
+        // 恢复主窗口的播放状态与位置：从当前句继续，而不是跳回开头
+        setIsPlaying(!!initialState.player?.isPlaying);
+        pendingSeekRef.current = initialState.player?.currentTime ?? 0;
         setDuration(initialState.player?.duration ?? 0);
       }
     }
@@ -89,24 +117,87 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
     setProgress(getPlaybackProgress(currentTime, duration));
   }, [currentTime, duration]);
 
-  // Sync play state with video
+  // Sync play state with video (and vocals audio)
   useEffect(() => {
-    if (videoRef.current && isVideoReady) {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (video && isVideoReady) {
       if (isPlaying) {
-        videoRef.current.play().catch(console.error);
+        video.play().catch(console.error);
       } else {
-        videoRef.current.pause();
+        video.pause();
       }
     }
-  }, [isPlaying, isVideoReady]);
+    if (audio && video && isVideoReady) {
+      // 先对齐时间轴；video 仍在 seek 时不先出声，等 seeked 后再一起播放
+      // （否则 audio 抢跑后被 seeked 对齐拽回句首，造成开头单词重复的回声）
+      audio.currentTime = video.currentTime;
+      if (isPlaying && !video.seeking) {
+        audio.play().catch(console.error);
+      } else if (!isPlaying) {
+        audio.pause();
+      }
+    }
+  }, [isPlaying, isVideoReady, useVocalsActive, fileId]);
 
-  // Sync volume with video
+  // Sync volume with video and vocals audio
+  // 人声模式下 video 静音、audio 承担声音输出。fileId 入 deps：
+  // 切换文件时 video 元素被重建（muted 默认 false），必须重新静音，否则双声叠加
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume;
-      videoRef.current.muted = isMuted;
+      videoRef.current.muted = isMuted || useVocalsActive;
     }
-  }, [volume, isMuted]);
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      audioRef.current.muted = isMuted;
+    }
+  }, [volume, isMuted, useVocalsActive, fileId]);
+
+  // 人声模式：video 的 seek 期间暂停 audio，seeked 后对齐时间轴再一起起播，
+  // 避免 audio 抢跑后被拽回句首（单句播放开头重复词回声）
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !useVocalsActive) return;
+
+    const handleSeeking = () => {
+      const audio = audioRef.current;
+      if (audio && isPlayingRef.current) {
+        audio.pause();
+      }
+    };
+    const handleSeeked = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.currentTime = video.currentTime;
+      if (isPlayingRef.current) {
+        audio.play().catch(() => {});
+      }
+    };
+    // audio 缓冲就绪即起播兜底：弹窗打开时 wav 从中间位置缓冲可能滞后于视频，
+    // 等它有数据了立即跟上，而不是依赖某一次 play() 调用恰好落在可用时机上
+    const handleAudioCanPlay = () => {
+      const audio = audioRef.current;
+      if (audio && isPlayingRef.current && audio.paused && !video.seeking) {
+        audio.play().catch(() => {});
+      }
+    };
+    video.addEventListener('seeking', handleSeeking);
+    video.addEventListener('seeked', handleSeeked);
+    const audioEl = audioRef.current;
+    if (audioEl) {
+      audioEl.addEventListener('canplay', handleAudioCanPlay);
+      audioEl.addEventListener('loadeddata', handleAudioCanPlay);
+    }
+    return () => {
+      video.removeEventListener('seeking', handleSeeking);
+      video.removeEventListener('seeked', handleSeeked);
+      if (audioEl) {
+        audioEl.removeEventListener('canplay', handleAudioCanPlay);
+        audioEl.removeEventListener('loadeddata', handleAudioCanPlay);
+      }
+    };
+  }, [useVocalsActive, fileId]);
 
   // Handle video events
   useEffect(() => {
@@ -116,6 +207,13 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
     const handleTimeUpdate = () => {
       const newCurrentTime = video.currentTime;
       setCurrentTime(newCurrentTime);
+
+      // 人声模式：audio 元素从属于 video 时钟，漂移超阈值时硬追平
+      const audio = audioRef.current;
+      if (audio && !audio.paused &&
+          Math.abs(audio.currentTime - newCurrentTime) > 0.15) {
+        audio.currentTime = newCurrentTime;
+      }
 
       // 单句播放模式 - 到达结尾时自动暂停
       if (singleSentenceModeRef.current && singleSentenceEndRef.current !== null && newCurrentTime >= singleSentenceEndRef.current) {
@@ -128,6 +226,14 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
       setIsVideoReady(true);
+
+      // 恢复分离时主窗口的播放位置（>0.5s 才视为有效进度）
+      const target = pendingSeekRef.current;
+      pendingSeekRef.current = null;
+      if (target != null && target > 0.5) {
+        video.currentTime = target;
+        setCurrentTime(target);
+      }
     };
 
     const handleCanPlay = () => {
@@ -235,6 +341,9 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
     if (videoRef.current) {
       videoRef.current.volume = newVolume;
     }
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
   };
 
   // Handle mute toggle
@@ -242,7 +351,10 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
     const newState = !isMuted;
     setIsMuted(newState);
     if (videoRef.current) {
-      videoRef.current.muted = newState;
+      videoRef.current.muted = newState || useVocalsActive;
+    }
+    if (audioRef.current) {
+      audioRef.current.muted = newState;
     }
   };
 
@@ -383,6 +495,20 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
             console.error('[VideoPlayerWindow] Video error:', e);
           }}
         />
+
+        {/* 人声音轨（video 静音，audio 跟随 video 时钟播放） */}
+        {useVocalsActive && (
+          <audio
+            key={fileId}
+            ref={audioRef}
+            src={mediaService.getVocalsUrl(fileId)}
+            preload="auto"
+            onError={(e) => {
+              console.warn('[VideoPlayerWindow] Vocals audio unavailable, falling back to original audio:', e);
+              setVocalsAvailable(false);
+            }}
+          />
+        )}
 
         {/* Center play overlay - only when not playing */}
         {!isPlaying && (

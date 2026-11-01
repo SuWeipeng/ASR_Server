@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { detachPlayer, attachPlayer, setPlaying, setVolume, setMuted } from '../store/playerSlice';
+import { selectPlaybackUseVocals } from '../store/uiSlice';
 
 const PLAYER_WINDOW_URL = '/?mode=player';
 const CHANNEL_NAME = 'asr-player-sync';
@@ -32,6 +33,7 @@ export const usePlayerWindow = () => {
   const playerState = useSelector((state) => state.player);
   const subtitleState = useSelector((state) => state.subtitle);
   const fileId = useSelector((state) => state.media.fileId);
+  const useVocals = useSelector(selectPlaybackUseVocals);
 
   const windowRef = useRef(null);
   const channelRef = useRef(null);
@@ -41,6 +43,7 @@ export const usePlayerWindow = () => {
   const playerStateRef = useRef(playerState);
   const subtitleStateRef = useRef(subtitleState);
   const fileIdRef = useRef(fileId);
+  const useVocalsRef = useRef(useVocals);
   const dispatchRef = useRef(dispatch);
 
   // Update refs when state changes
@@ -48,8 +51,9 @@ export const usePlayerWindow = () => {
     playerStateRef.current = playerState;
     subtitleStateRef.current = subtitleState;
     fileIdRef.current = fileId;
+    useVocalsRef.current = useVocals;
     dispatchRef.current = dispatch;
-  }, [playerState, subtitleState, fileId, dispatch]);
+  }, [playerState, subtitleState, fileId, useVocals, dispatch]);
 
   // Initialize BroadcastChannel - only once on mount
   useEffect(() => {
@@ -71,6 +75,7 @@ export const usePlayerWindow = () => {
                   player: playerStateRef.current,
                   subtitle: subtitleStateRef.current,
                   fileId: fileIdRef.current,
+                  useVocals: useVocalsRef.current,
                 },
               });
             }
@@ -116,10 +121,11 @@ export const usePlayerWindow = () => {
           player: playerState,
           subtitle: subtitleState,
           fileId,
+          useVocals,
         },
       });
     }
-  }, [playerState, subtitleState, fileId, isDetached]);
+  }, [playerState, subtitleState, fileId, useVocals, isDetached]);
 
   // Clean up when detaching state changes to false
   useEffect(() => {

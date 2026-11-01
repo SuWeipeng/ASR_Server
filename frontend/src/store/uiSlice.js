@@ -61,6 +61,30 @@ export const updateNoiseConfig = createAsyncThunk(
   }
 );
 
+export const getDemucsConfig = createAsyncThunk(
+  'ui/getDemucsConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.getDemucsConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const updateDemucsConfig = createAsyncThunk(
+  'ui/updateDemucsConfig',
+  async (config, { rejectWithValue }) => {
+    try {
+      const response = await systemService.updateDemucsConfig(config);
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 function getInitialMicDeviceId() {
   try {
     return localStorage.getItem('selectedMicDeviceId') || null;
@@ -107,6 +131,9 @@ const initialState = {
   noiseConfig: null,
   noiseConfigLoading: false,
   noiseConfigError: null,
+  demucsConfig: null,
+  demucsConfigLoading: false,
+  demucsConfigError: null,
 };
 
 const uiSlice = createSlice({
@@ -206,6 +233,32 @@ const uiSlice = createSlice({
       .addCase(updateNoiseConfig.rejected, (state, action) => {
         state.noiseConfigLoading = false;
         state.noiseConfigError = action.payload;
+      })
+      // Get demucs config
+      .addCase(getDemucsConfig.pending, (state) => {
+        state.demucsConfigLoading = true;
+        state.demucsConfigError = null;
+      })
+      .addCase(getDemucsConfig.fulfilled, (state, action) => {
+        state.demucsConfigLoading = false;
+        state.demucsConfig = action.payload;
+      })
+      .addCase(getDemucsConfig.rejected, (state, action) => {
+        state.demucsConfigLoading = false;
+        state.demucsConfigError = action.payload;
+      })
+      // Update demucs config
+      .addCase(updateDemucsConfig.pending, (state) => {
+        state.demucsConfigLoading = true;
+        state.demucsConfigError = null;
+      })
+      .addCase(updateDemucsConfig.fulfilled, (state, action) => {
+        state.demucsConfigLoading = false;
+        state.demucsConfig = action.payload;
+      })
+      .addCase(updateDemucsConfig.rejected, (state, action) => {
+        state.demucsConfigLoading = false;
+        state.demucsConfigError = action.payload;
       });
   },
 });
@@ -226,5 +279,16 @@ export const {
 
 export const getNoiseConfigAction = getNoiseConfig;
 export const updateNoiseConfigAction = updateNoiseConfig;
+
+/**
+ * 播放器是否应使用人声音轨：
+ * 播放偏好开启 + 当前视频的字幕由 demucs 生成（有人声文件）+ 有当前文件
+ */
+export const selectPlaybackUseVocals = (state) =>
+  !!(
+    state.ui.demucsConfig?.playback_use_vocals &&
+    state.subtitle.transcriptionMetadata?.used_demucs &&
+    state.media.fileId
+  );
 
 export default uiSlice.reducer;

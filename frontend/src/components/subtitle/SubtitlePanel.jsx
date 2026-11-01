@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Play } from 'lucide-react';
+import { Play, Download } from 'lucide-react';
 import { requestSeekToSubtitle, setCurrentSubtitleIndex } from '../../store/subtitleSlice';
+import { selectPlaybackUseVocals } from '../../store/uiSlice';
+import { mediaService } from '../../services/mediaService';
 
 export const SubtitlePanel = () => {
   const dispatch = useDispatch();
@@ -11,6 +13,8 @@ export const SubtitlePanel = () => {
   );
   const isSeeking = useSelector((state) => state.player.isSeeking);
   const isDetached = useSelector((state) => state.player.isDetached);
+  const fileId = useSelector((state) => state.media.fileId);
+  const useVocals = useSelector(selectPlaybackUseVocals);
   const [selectedStartTime, setSelectedStartTime] = useState('');
 
   // MSG_TYPES should match the one defined in App.jsx
@@ -75,6 +79,20 @@ export const SubtitlePanel = () => {
 
     // Otherwise, request the video to seek via redux state
     dispatch(requestSeekToSubtitle(index));
+  };
+
+  // 下载当前句的音频片段（MP3）。音源跟随播放模式：开人声切人声（无人声文件自动回退原声）
+  const handleDownloadSentence = (e, subtitle) => {
+    e.stopPropagation(); // 不触发行点击跳转
+    if (!fileId) return;
+    const url = mediaService.getSentenceUrl(
+      fileId, subtitle.start, subtitle.end, useVocals, subtitle.text
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   // Detect user scrolling
@@ -198,7 +216,16 @@ export const SubtitlePanel = () => {
                       .padStart(2, '0')}
                   </span>
                   {index === currentSubtitleIndex && (
-                    <Play size={16} className="text-primary flex-shrink-0" />
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => handleDownloadSentence(e, subtitle)}
+                        className="p-1 rounded transition-colors hover:bg-bg-primary"
+                        title="下载这句音频 (MP3)"
+                      >
+                        <Download size={14} className="text-text-secondary" />
+                      </button>
+                      <Play size={16} className="text-primary flex-shrink-0" />
+                    </div>
                   )}
                 </div>
                 <p className="text-text-primary">{subtitle.text}</p>

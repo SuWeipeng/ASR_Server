@@ -62,6 +62,7 @@ const initialState = {
   isLoading: false,
   error: null,
   fromCache: false,  // 标记字幕是否来自缓存
+  transcriptionMetadata: null,  // 生成/加载响应的 metadata（含 used_demucs）
   // Increment to request a seek to the subtitle at seekToIndex
   seekRequest: { index: -1, token: 0 },
 };
@@ -100,6 +101,7 @@ const subtitleSlice = createSlice({
       state.currentSubtitleIndex = -1;
       state.searchQuery = '';
       state.fromCache = false;
+      state.transcriptionMetadata = null;
       state.error = null;
     },
     clearError: (state) => {
@@ -129,6 +131,7 @@ const subtitleSlice = createSlice({
         state.subtitles = action.payload.segments;
         state.filteredSubtitles = action.payload.segments;
         state.currentSubtitleIndex = -1;
+        state.transcriptionMetadata = action.payload.metadata || null;
         state.error = null;
         console.log('[Subtitle] State updated. Subtitles count:', state.subtitles?.length);
       })
@@ -141,6 +144,7 @@ const subtitleSlice = createSlice({
       .addCase(getSubtitles.fulfilled, (state, action) => {
         state.subtitles = action.payload.segments;
         state.filteredSubtitles = action.payload.segments;
+        state.transcriptionMetadata = action.payload.metadata || null;
       })
       // Search subtitles
       .addCase(searchSubtitles.fulfilled, (state, action) => {
@@ -157,6 +161,7 @@ const subtitleSlice = createSlice({
         state.filteredSubtitles = action.payload.segments;
         state.currentSubtitleIndex = -1;
         state.fromCache = true;  // 标记来自缓存
+        state.transcriptionMetadata = action.payload.metadata || null;
         state.error = null;
       })
       .addCase(loadCachedSubtitles.rejected, (state, action) => {

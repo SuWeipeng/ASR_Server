@@ -14,6 +14,9 @@ export const transcriptionService = {
       language: language,
       generate_timestamps: true,
       force_refresh: forceRefresh,
+    }, {
+      // demucs 分离 + VAD + ASR 在长视频上很容易超过全局 5 分钟超时
+      timeout: 30 * 60 * 1000,
     });
   },
 

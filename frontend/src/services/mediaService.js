@@ -48,6 +48,36 @@ export const mediaService = {
   },
 
   /**
+   * Get demucs-separated vocals audio URL
+   * Uses direct backend URL (same reason as getMediaUrl)
+   * @param {string} fileId - File ID
+   * @returns {string} Vocals audio URL
+   */
+  getVocalsUrl: (fileId) => {
+    return `${API_BASE_URL}/api/media/vocals/${fileId}`;
+  },
+
+  /**
+   * Get subtitle sentence audio clip download URL (MP3)
+   * Uses direct backend URL (same reason as getMediaUrl)
+   * @param {string} fileId - File ID
+   * @param {number} start - Sentence start time (seconds)
+   * @param {number} end - Sentence end time (seconds)
+   * @param {boolean} useVocals - Cut from demucs-separated vocals when available
+   * @param {string} name - Sentence text, used as the download filename
+   * @returns {string} Sentence clip URL
+   */
+  getSentenceUrl: (fileId, start, end, useVocals, name) => {
+    const params = new URLSearchParams({
+      start: String(start),
+      end: String(end),
+      use_vocals: String(!!useVocals),
+      name: name || '',
+    });
+    return `${API_BASE_URL}/api/media/sentence/${fileId}?${params.toString()}`;
+  },
+
+  /**
    * Delete file
    * @param {string} fileId - File ID
    * @returns {Promise} Delete response

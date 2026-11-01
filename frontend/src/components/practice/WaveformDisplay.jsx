@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import api from '../../services/api';
+import { selectPlaybackUseVocals } from '../../store/uiSlice';
 
 /**
  * WaveformDisplay component - Displays pre-generated waveform data
  * Shows amplitude waveform and pitch curve without interfering with video playback
+ * Waveform source follows the playback mode: vocals when playing vocals
+ * (background music pollutes the pitch curve), original audio otherwise.
  */
 export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) => {
   const canvasRef = useRef(null);
@@ -16,8 +19,9 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
 
   // Get current playback time for position indicator
   const currentTime = useSelector((state) => state.player.currentTime);
+  const useVocals = useSelector(selectPlaybackUseVocals);
 
-  // Fetch waveform data when fileId or time range changes
+  // Fetch waveform data when fileId / time range / playback mode changes
   useEffect(() => {
     if (!fileId || !startTime) return;
 
@@ -30,7 +34,8 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
           params: {
             start_time: startTime,
             end_time: endTime,
-            num_points: 500
+            num_points: 500,
+            use_vocals: useVocals
           }
         });
 
@@ -46,7 +51,7 @@ export const WaveformDisplay = ({ fileId, startTime, endTime, className = '' }) 
     };
 
     fetchWaveform();
-  }, [fileId, startTime, endTime]);
+  }, [fileId, startTime, endTime, useVocals]);
 
   // Draw waveform on canvas when data is available
   useEffect(() => {

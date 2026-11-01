@@ -6,6 +6,7 @@
 
 - 🎤 **音视频上传** - 支持视频和音频文件
 - 📝 **AI字幕生成** - 使用 Qwen3-ASR 生成高质量字幕
+- 🎚️ **人声分离** - 集成 demucs，带背景音乐的视频先分离人声再识别，字幕更准确；播放时可切换人声/原声音轨，波形与单句下载跟随音源
 - ⏱️ **时间轴对齐** - 单词级时间戳，支持精确同步
 - 🎯 **跟读练习** - 录音并评估发音准确度
 - 📊 **详细分析** - 单词级对比和评分反馈
@@ -17,6 +18,7 @@
 ### 后端
 - **框架**: FastAPI + Python
 - **AI模型**: Qwen3-ASR-1.7B + Qwen3ForcedAligner-0.6B
+- **人声分离**: demucs（可选）
 - **音频处理**: FFmpeg, soundfile
 - **架构**: 分层架构 (API → Service → Core)
 
@@ -30,7 +32,7 @@
 
 ### 前置要求
 
-1. **Python 3.8+**
+1. **Python 3.10+**（建议用 conda 管理环境）
 2. **Node.js 18+**
 3. **FFmpeg** (必须安装并在 PATH 中)
    - Windows: [下载](https://ffmpeg.org/download.html)
@@ -40,6 +42,28 @@
 5. **模型文件** - 下载以下模型到 `models/` 目录:
    - Qwen3-ASR-1.7B (或 0.6B)
    - Qwen3-ForcedAligner-0.6B
+
+### 安装步骤
+
+```bash
+# 1. 创建 conda 环境（注意：start.bat 固定使用名为 qwen3-asr 的环境）
+conda create -n qwen3-asr python=3.10
+conda activate qwen3-asr
+
+# 2. 安装后端依赖
+cd backend
+pip install -r requirements.txt
+
+# 3. (可选) 安装 demucs 启用人声分离
+pip install demucs
+# 下载 htdemucs 模型到本地目录（用于离线加载），例如：
+#   D:\adefossez\HTDemucs   （htdemucs.yaml + 955717e8.th 等）
+# 不下载也可以，首次分离时 demucs 会自动联网从 HuggingFace 下载
+
+# 4. 安装前端依赖
+cd ../frontend
+npm install
+```
 
 ### 一键启动
 
@@ -60,14 +84,14 @@ chmod +x start.sh
 3. 启动后端服务器 (http://localhost:8000)
 4. 启动前端服务器 (http://localhost:5173)
 
+> Windows 版 start.bat 固定激活名为 `qwen3-asr` 的 conda 环境，如环境名不同请修改脚本。
+
 ### 手动启动
 
 #### 后端
 ```bash
+conda activate qwen3-asr
 cd backend
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或 venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 python -m app.main
 ```
@@ -79,20 +103,59 @@ npm install
 npm run dev
 ```
 
+## 开发与构建
+
+### 日常开发不需要 build
+
+- **后端**: `python -m app.main` / `uvicorn` 以 `reload=True` 启动，修改 `.py` 文件后**自动重载**，无需重启
+- **前端**: `npm run dev` 启动 Vite 开发服务器，改动**热更新**（改 Redux store / 全局状态相关文件后建议 F5 刷新一次浏览器，热更新对 store 类模块不一定彻底）
+
+### 什么时候需要 build
+
+只有两种场合需要构建前端：
+
+1. **部署/发布**：把应用给别人用、脱离 Vite 开发服务器运行时
+2. **验证发布产物**：确认构建结果正常
+
+### 怎么 build
+
+```bash
+cd frontend
+npm run build        # 产物输出到 frontend/dist/
+npm run preview      # 本地预览构建产物 (http://localhost:4173)
+```
+
+> **部署注意**：当前后端不托管 `dist/`（没有 StaticFiles 挂载），生产部署需要自行解决两件事：
+> 1. 用 Nginx 等静态服务器托管 `dist/`，并把 `/api` 反向代理到后端 8000 端口（前端请求走 `/api` 前缀）
+> 2. 后端 CORS 默认只允许 `localhost:5173/3000`（见 `backend/app/main.py`），其他源需在 `main.py` 或通过 `FRONTEND_URL` 环境变量添加
+>
+> 媒体文件（视频/音频）请求直连 `http://localhost:8000`（见 `frontend/src/services/mediaService.js` 的 `API_BASE_URL`），部署时需同步调整 `VITE_API_BASE_URL` 环境变量。
+
+### 其他有用命令
+
+```bash
+cd frontend
+npm run lint         # ESLint 检查
+
+cd backend
+python -m py_compile app/main.py   # 快速语法检查单个文件
+```
+
 ## 使用指南
 
 ### 1. 上传文件
-- 点击顶部导航栏的 "打开文件" 按钮
-- 选择视频或音频文件
+- 点击顶部导航栏的 "打开文件" 按钮（或直接拖拽文件到播放器区域）
+- 选择视频或音频文件，上传后自动生成字幕
+- 同名同大小的文件再次上传会直接命中缓存，不重复识别
 
 ### 2. 生成字幕
-- 上传后自动生成字幕
 - 右侧面板显示字幕列表
+- 点击字幕跳转到对应时间并单句播放
 
 ### 3. 播放与练习
 - 使用播放器控制条播放视频
-- 点击字幕跳转到对应时间
 - 选择字幕后可在下方练习区进行跟读
+- 点击"打开独立窗口"可把播放器弹出为独立窗口（与主窗口状态同步）
 
 ### 4. 快捷键
 
@@ -108,6 +171,45 @@ npm run dev
 | `Esc` | 关闭弹窗 |
 | `?` | 显示快捷键帮助 |
 
+## 人声分离 (demucs)
+
+对带背景音乐/噪音的视频，可在识别前用 [demucs](https://github.com/adefossez/demucs) 把人声分离出来，只对干净人声做 ASR，显著减少背景音乐造成的幻听和错字。
+
+### 启用条件
+
+- 后端所在 Python 环境已安装 demucs：`pip install demucs`
+- 模型可用：在设置中填写**本地模型仓库路径**（如 `D:\adefossez\HTDemucs`，离线加载）；留空则首次分离时自动联网从 HuggingFace 下载
+- 服务启动日志会输出 demucs 检测结果；`GET /api/system/status` 的 `demucs_available` 字段标识可用性
+
+### 两个独立设置（设置页 → 音视频设置 → 人声分离）
+
+| 设置 | 行为 |
+|------|------|
+| **生成字幕时启用人声分离** | 影响识别结果。修改后点"保存并刷新字幕"会**自动重新生成**当前视频的字幕 |
+| **播放时使用人声音轨** | 纯播放偏好，**点击立即生效**，不触发字幕重新生成。仅对已用人声分离生成过字幕的视频生效（视频原声被静音，叠加播放人声轨） |
+
+未检测到 demucs 时两个开关显示但禁用，并提示安装方法。
+
+### 顶栏快捷开关
+
+demucs 可用时，顶栏（深色模式切换按钮左侧）显示人声音轨快捷开关（声波图标）：高亮 = 播放人声，普通 = 播放原声，悬停有说明。点击立即生效并持久化，与设置页开关双向同步；独立弹窗播放器也会实时跟随。
+
+### 跟随播放音源的功能
+
+以下功能跟随"播放时使用人声音轨"开关（当前视频无人声文件时自动回退原声）：
+
+- **播放器声音**：人声模式下视频原声静音，叠加播放分离人声轨；播放/暂停/拖进度/倍速/单句循环全同步
+- **跟读练习波形**：振幅与音高曲线改用人声计算，音高参照不受背景音乐污染（切换音源时波形自动刷新）
+- **单句音频下载**：字幕列表当前播放句三角形左侧的下载按钮，输出 MP3（文件名即句文本）
+
+### 行为细节
+
+- **缓存复用**：分离出的人声（`temp/{file_id}_vocals.wav`）按文件缓存，同一视频反复生成不重复分离；更换模型名/仓库路径后自动重新分离
+- **失败回退**：分离失败（显存不足、模型缺失、超时等）自动回退用原声继续生成字幕，日志记录 warning，字幕生成不会失败
+- **耗时**：GPU 上约为音频时长的 1/40 ~ 1/70（30 分钟视频约 30-60 秒）；生成请求超时已放宽到 30 分钟
+- **时间轴不变**：分离不改变时间轴，字幕与视频原声/人声播放均保持同步
+- GPU 显存：demucs 子进程约 3-4GB，与常驻的 ASR 模型顺序执行不并发；低端卡 OOM 会触发回退
+
 ## API 文档
 
 启动后端后访问: http://localhost:8000/docs
@@ -117,11 +219,18 @@ npm run dev
 #### 媒体管理
 - `POST /api/media/upload` - 上传文件
 - `GET /api/media/file/{file_id}` - 获取文件
-- `DELETE /api/media/file/{file_id}` - 删除文件
+- `GET /api/media/audio/{file_id}` - 获取提取的音频 (16kHz mono WAV)
+- `GET /api/media/vocals/{file_id}` - 获取分离的人声音频（无人声时 404）
+- `GET /api/media/sentence/{file_id}?start&end&use_vocals&name` - 下载单句音频片段 (MP3)
+- `GET /api/media/waveform/{file_id}` - 波形数据（`use_vocals=true` 时用人声计算）
+- `DELETE /api/media/file/{file_id}` - 删除文件（含清理对应音频/人声缓存）
+
+> 所有媒体流式端点（file/audio/vocals）支持 Range 请求（206 Partial Content），浏览器 seek 直接定位字节区间，拖动进度与中段起播不再长缓冲。
 
 #### 字幕生成
-- `POST /api/transcription/generate` - 生成字幕
+- `POST /api/transcription/generate` - 生成字幕（响应含 `metadata.used_demucs` 标记）
 - `GET /api/transcription/subtitles/{file_id}` - 获取字幕
+- `GET /api/transcription/cache/load/{file_id}` - 加载缓存字幕
 - `GET /api/transcription/export/{file_id}` - 导出字幕 (SRT/VTT)
 
 #### 练习评估
@@ -129,8 +238,13 @@ npm run dev
 - `GET /api/practice/health` - 健康检查
 
 #### 系统状态
-- `GET /api/system/status` - 系统状态
+- `GET /api/system/status` - 系统状态（含 `demucs_available`）
 - `GET /api/system/health` - 健康检查
+
+#### 动态配置
+- `GET/PUT /api/vad/config` - VAD 参数（`POST /config/reset` 重置）
+- `GET/PUT /api/noise/config` - 音视频降噪参数
+- `GET/PUT /api/demucs/config` - 人声分离配置（含 `demucs_available`）
 
 ## 配置
 
@@ -156,9 +270,27 @@ PORT=8000
 MAX_UPLOAD_SIZE=524288000    # 500MB
 ```
 
+### 动态配置文件（设置页修改，自动持久化）
+
+以下配置在设置页修改后立即生效并写入 JSON 文件；**手动编辑文件需要重启后端**（启动时加载进内存）：
+
+| 文件 | 内容 |
+|------|------|
+| `backend/vad_config.json` | VAD 切分参数 |
+| `backend/noise_config.json` | 音视频降噪（Butterworth 滤波）参数 |
+| `backend/demucs_config.json` | 人声分离：`enabled` / `model_name` / `repo_path` / `playback_use_vocals` |
+
 ### 前端配置
 
 编辑 `frontend/vite.config.js` 修改端口和代理设置。
+
+### 数据目录
+
+| 目录 | 内容 |
+|------|------|
+| `uploads/` | 上传的原始文件（`{uuid}.{ext}`），删除文件时自动清理 |
+| `temp/` | 处理中间产物：`{file_id}.wav` 提取音频、`{file_id}_vocals.wav` 分离人声（复用缓存） |
+| `cache/` | 识别结果缓存 `cache/{文件名}_{文件大小}/`，含字幕 JSON/SRT/VTT 与音频；改名或改大小视为新文件 |
 
 ## 项目结构
 
@@ -166,25 +298,26 @@ MAX_UPLOAD_SIZE=524288000    # 500MB
 D:\ASR_Server/
 ├── backend/                 # 后端
 │   ├── app/
-│   │   ├── api/            # API 路由
-│   │   ├── services/       # 业务逻辑
-│   │   ├── models/         # 数据模型
-│   │   ├── utils/          # 工具函数
-│   │   └── core/           # 模型加载
+│   │   ├── api/            # API 路由（media/transcription/practice/system/vad/noise/demucs）
+│   │   ├── services/       # 业务逻辑（字幕生成、媒体处理、缓存、VAD）
+│   │   ├── models/         # 数据模型（domain + schemas）
+│   │   ├── utils/          # 工具函数（ffmpeg 封装、demucs 封装、音频处理）
+│   │   └── core/           # 模型加载与动态配置管理（*_config.py）
 │   ├── requirements.txt
-│   └── README.md
+│   └── *_config.json       # 动态配置（运行时生成）
 ├── frontend/               # 前端
 │   ├── src/
-│   │   ├── components/     # React 组件
-│   │   ├── store/          # Redux 状态
+│   │   ├── components/     # React 组件（player/settings/subtitle/practice）
+│   │   ├── store/          # Redux 状态（ui/media/player/subtitle/practice）
 │   │   ├── services/       # API 服务
-│   │   ├── hooks/          # 自定义 Hooks
+│   │   ├── hooks/          # 自定义 Hooks（播放同步、独立窗口、快捷键）
 │   │   └── utils/          # 工具函数
 │   ├── package.json
 │   └── vite.config.js
-├── models/                 # 模型文件
+├── models/                 # 模型文件（Qwen3-ASR / ForcedAligner）
 ├── uploads/                # 上传文件
-├── temp/                   # 临时文件
+├── temp/                   # 处理中间产物（提取音频/分离人声）
+├── cache/                  # 识别结果缓存
 ├── start.bat              # Windows 启动脚本
 ├── start.sh               # Linux/Mac 启动脚本
 └── README.md              # 本文件
@@ -195,6 +328,21 @@ D:\ASR_Server/
 ### FFmpeg 未找到
 - 确保 FFmpeg 在 PATH 中
 - 测试: `ffmpeg -version`
+
+### demucs 未检测到（设置页开关禁用）
+- 在后端运行的那个 conda 环境里安装：`conda activate qwen3-asr && pip install demucs`
+- 装完后重启后端（可用性检测结果进程内缓存）
+
+### 人声分离失败 / 字幕回退原声
+- 查看后端日志中的 warning（含 demucs 子进程 stderr）
+- 检查设置里的**模型仓库路径**是否存在（如 `D:\adefossez\HTDemucs`）
+- 检查模型名是否正确（默认 `htdemucs`）
+- 显存不足时 demucs 会被 OOM 杀掉并回退，可换小显存时段使用或接受原声结果
+
+### 打开了"播放时使用人声音轨"但还是原声
+- 该视频的字幕必须是**启用人声分离后生成**的（响应 metadata 里 `used_demucs: true`）
+- 旧视频需重新生成：启用"生成字幕时启用人声分离"后，在设置页改任意生成相关参数点"保存并刷新字幕"，即可强制重跑
+- 前端页面刷新一次（F5）确保代码和状态最新
 
 ### CUDA 内存不足
 - 使用小模型 (0.6B)
@@ -211,12 +359,16 @@ D:\ASR_Server/
 - 检查 CORS 配置
 - 查看浏览器控制台错误
 
+### 改了代码没生效
+- 后端：uvicorn `reload=True` 会自动重载，确认后端窗口没有报错退出
+- 前端：Vite 热更新，改 Redux store 相关文件后 F5 刷新浏览器
+
 ## 开发
 
 ### 后端开发
 ```bash
+conda activate qwen3-asr
 cd backend
-source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
@@ -229,9 +381,10 @@ npm run dev
 ```
 
 ### 添加新功能
-1. 后端: 在 `app/api/` 添加路由
+1. 后端: 在 `app/api/` 添加路由，在 `app/api/__init__.py` 注册
 2. 前端: 在 `src/services/` 添加 API 调用
 3. 状态: 在 `src/store/` 添加 slice
+4. 动态配置项: 参考 `app/core/noise_config.py`（dataclass + 单例 Manager + JSON 持久化）和 `app/api/noise_config.py`
 
 ## 许可证
 
@@ -244,6 +397,7 @@ MIT License
 ## 致谢
 
 - [Qwen Team](https://github.com/QwenLM/Qwen2-Audio) - Qwen3-ASR 模型
+- [adefossez](https://github.com/adefossez/demucs) - demucs 人声分离
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代 Web 框架
 - [React](https://react.dev/) - UI 框架
 - [TailwindCSS](https://tailwindcss.com/) - CSS 框架

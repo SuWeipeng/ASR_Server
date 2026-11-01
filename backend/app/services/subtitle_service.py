@@ -10,7 +10,8 @@ from app.services.alignment_service import alignment_service
 from app.services.media_service import media_service
 from app.services.cache_service import cache_service
 from app.config import settings
-from app.utils import logger, extract_audio_segment
+from app.core.demucs_config import get_demucs_config
+from app.utils import logger, extract_audio_segment, check_demucs_available
 from app.utils.punct_segmentation import segment_subtitles
 from app.models.domain import SubtitleSegment, SubtitleWord, TranscriptionResult
 
@@ -82,6 +83,27 @@ class SubtitleService:
                 logger.error(f"Media file not found: {file_id}")
                 return None
 
+            # demucs 人声分离：勾选后用分离出的人声作为 ASR 输入，失败自动回退原声
+            asr_audio_path = audio_path
+            used_demucs = False
+            demucs_cfg = get_demucs_config().get_config()
+            if demucs_cfg.enabled:
+                if check_demucs_available():
+                    logger.info(f"Applying demucs vocal separation: model={demucs_cfg.model_name}")
+                    vocals_path = media_service.separate_vocals_from_media(
+                        file_id,
+                        demucs_cfg.model_name,
+                        demucs_cfg.repo_path,
+                        duration=media_file.duration
+                    )
+                    if vocals_path:
+                        asr_audio_path = vocals_path
+                        used_demucs = True
+                    else:
+                        logger.warning("Demucs separation failed, falling back to original audio")
+                else:
+                    logger.warning("Demucs enabled but not available, falling back to original audio")
+
             # Determine if VAD should be used for long audio
             audio_duration = media_file.duration or 0.0
             should_use_vad = (
@@ -94,7 +116,7 @@ class SubtitleService:
                 logger.info(f"Long audio detected ({audio_duration:.2f}s), using VAD splitting")
                 # Use long audio transcription with VAD
                 transcription_result = asr_service.transcribe_long_audio(
-                    audio_path=audio_path,
+                    audio_path=asr_audio_path,
                     language=language,
                     generate_timestamps=True,
                     use_vad=True
@@ -102,7 +124,7 @@ class SubtitleService:
             else:
                 # Use standard transcription for shorter files
                 transcription_result = asr_service.transcribe_file(
-                    audio_path=audio_path,
+                    audio_path=asr_audio_path,
                     language=language,
                     generate_timestamps=True
                 )
@@ -126,7 +148,7 @@ class SubtitleService:
                 logger.info("Applying forced alignment...")
                 self._apply_alignment_to_segments(
                     segments,
-                    audio_path,
+                    asr_audio_path,
                     full_text,
                     language
                 )
@@ -142,16 +164,19 @@ class SubtitleService:
                 processing_time=processing_time
             )
 
-            # Add metadata about VAD usage
+            # Add metadata about demucs/VAD usage
+            metadata = {}
+            if used_demucs:
+                metadata["used_demucs"] = True
+                metadata["demucs_model"] = demucs_cfg.model_name
             if should_use_vad:
-                result.metadata = {
-                    "vad_enabled": True,
-                    "num_segments": transcription_result.get("num_segments", 0)
-                }
+                metadata["vad_enabled"] = True
+                metadata["num_segments"] = transcription_result.get("num_segments", 0)
+            result.metadata = metadata or None
 
             # Save to cache
             logger.info(f"Saving to cache: {filename}_{file_size}")
-            cache_service.save_transcription(filename, file_size, result, audio_path)
+            cache_service.save_transcription(filename, file_size, result, asr_audio_path)
             cache_service.generate_subtitle_files(filename, file_size, segments)
             cache_service.link_file_id(filename, file_size, file_id)
 

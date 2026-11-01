@@ -419,6 +419,69 @@ def extract_audio_segment(
         raise FFmpegError(f"Failed to extract audio segment: {e}")
 
 
+def extract_audio_clip(
+    input_path: str,
+    output_path: str,
+    start_time: float,
+    duration: float
+) -> bool:
+    """
+    Extract an audio clip [start_time, start_time + duration) as MP3
+    (e.g. a single subtitle sentence for download)
+
+    Args:
+        input_path: Input audio/video file
+        output_path: Output MP3 file path
+        start_time: Clip start time in seconds
+        duration: Clip duration in seconds
+
+    Returns:
+        True if successful
+
+    Raises:
+        FFmpegError: If FFmpeg processing fails
+    """
+    try:
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+
+        ffmpeg_path = get_ffmpeg_path()
+
+        command = [
+            ffmpeg_path,
+            "-ss", str(start_time),     # Input seek (fast on wav/audio streams)
+            "-t", str(duration),        # Clip duration
+            "-i", input_path,
+            "-vn",                      # No video
+            "-acodec", "libmp3lame",
+            "-q:a", "4",                # VBR quality (~128kbps, plenty for speech)
+            "-y",                       # Overwrite output
+            output_path
+        ]
+
+        env = get_ffmpeg_env()
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env
+        )
+
+        if result.returncode != 0:
+            raise FFmpegError(f"FFmpeg error: {result.stderr}")
+
+        if not os.path.exists(output_path):
+            raise FFmpegError(f"Output file not created: {output_path}")
+
+        logger.debug(f"Extracted audio clip: {start_time:.2f}s + {duration:.2f}s -> {output_path}")
+        return True
+
+    except subprocess.TimeoutExpired:
+        raise FFmpegError("FFmpeg timeout")
+    except Exception as e:
+        raise FFmpegError(f"Failed to extract audio clip: {e}")
+
+
 def check_ffmpeg_on_startup():
     """Check FFmpeg availability and log warning if not found"""
     if not check_ffmpeg_available():
