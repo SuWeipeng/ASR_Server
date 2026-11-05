@@ -142,16 +142,10 @@ class SubtitleService:
                 media_file.duration or 0.0
             )
 
-            # Apply forced alignment if available and requested
-            # Note: Skip forced alignment for VAD-processed audio as timestamps are already accurate
-            if use_alignment and not should_use_vad and alignment_service.check_aligner_ready():
-                logger.info("Applying forced alignment...")
-                self._apply_alignment_to_segments(
-                    segments,
-                    asr_audio_path,
-                    full_text,
-                    language
-                )
+            # 退化段时间戳修复：补偿 aligner 在长窗口上的漂移/钉死
+            # （VAD/非 VAD 两条路径统一作用，仅改写被判定退化的段）
+            if use_alignment and settings.SUBTITLE_SYNC_REPAIR and segments:
+                self._refine_segment_timing(segments, asr_audio_path, language)
 
             processing_time = time.time() - start_time
 
@@ -374,55 +368,433 @@ class SubtitleService:
         logger.info(f"Created {len(segments)} subtitle segments")
         return segments
 
-    def _apply_alignment_to_segments(
+    def _refine_segment_timing(
         self,
         segments: List[SubtitleSegment],
         audio_path: str,
-        full_text: str,
-        language: str
+        language: Optional[str]
     ):
         """
-        Apply forced alignment to improve word timestamps
+        字幕-语音全局再对齐：词 → 语音岛（utterance 单元）的全局 DP 分配
+        + 逐单元紧窗重对齐。
+
+        背景：ASR 内部对齐会把文本系统性向块首压缩（实测 14% 语音岛无人认领、
+        多段文本挤进早期岛），且错位是全局序列问题——词与错误岛的时间可以
+        完美吻合，局部启发式（退化判据/岛归属游标）无法发现。因此对全量词做
+        "预算（单元宽×自校准语速）+ 顺序约束" 的全局最优分配，再在每个单元的
+        紧窗口内用 aligner 精化；验收失败的单元按字符数加权插值
+        （单元即归属，插值安全）。
 
         Args:
-            segments: Subtitle segments to update
-            audio_path: Path to audio file
-            full_text: Full transcript text
-            language: Language code
+            segments: 语义断句后的字幕段（原地修改）
+            audio_path: ASR 实际输入的人声音频路径
+            language: 语言代码（None 按 auto 处理）
         """
+        from collections import deque
+
+        import soundfile as sf
+        from app.utils.speech_islands import (
+            compute_rms_envelope,
+            detect_speech_islands,
+            is_silence,
+            snap_start_forward,
+            speech_ratio,
+            speech_threshold,
+            split_islands,
+        )
+
         try:
-            # For each segment, refine timestamps
-            for segment in segments:
-                # Extract audio segment
-                segment_audio_path = f"{audio_path}.seg{segment.id}.wav"
-
-                # Note: In production, you might want to extract actual audio segments
-                # For now, we'll use the full audio with text segment
-                aligned_words = alignment_service.align_text_to_audio(
-                    audio_path,
-                    segment.text,
-                    language
-                )
-
-                if aligned_words:
-                    # Update segment words with aligned timestamps
-                    segment.words = [
-                        SubtitleWord(
-                            word=w["word"],
-                            start=w["start"],
-                            end=w["end"],
-                            confidence=w.get("score")
-                        )
-                        for w in aligned_words
-                    ]
-
-                    # Update segment boundaries
-                    if aligned_words:
-                        segment.start = aligned_words[0]["start"]
-                        segment.end = aligned_words[-1]["end"]
-
+            wav, sr = sf.read(audio_path, dtype="float32")
         except Exception as e:
-            logger.warning(f"Alignment failed for segment {segment.id}: {e}")
+            logger.warning(f"Sync repair: cannot read audio {audio_path}: {e}")
+            return
+        if wav.ndim > 1:
+            wav = wav.mean(axis=1)
+
+        envelope, frame_samples = compute_rms_envelope(wav, sr)
+        if len(envelope) == 0:
+            return
+        frame_dur = frame_samples / sr
+        thr = speech_threshold(envelope)
+        islands = detect_speech_islands(envelope, frame_dur, threshold=thr)
+        if not islands:
+            return
+        units = split_islands(islands, envelope, frame_dur)
+        if not units:
+            return
+        audio_dur = len(wav) / sr
+
+        snap_window = settings.SYNC_REPAIR_SNAP_WINDOW
+        ratio_floor = settings.SYNC_REPAIR_SPEECH_RATIO
+        max_word_dur = settings.SYNC_REPAIR_MAX_WORD_DUR
+
+        # 修复前快照：单调性兜底回退用
+        snapshot = [
+            (
+                seg.start,
+                seg.end,
+                [(w.start, w.end) for w in (seg.words or [])],
+            )
+            for seg in segments
+        ]
+
+        # ---- 1) 展平词序列（按漂移时间排序，稳定）----
+        word_locs = []  # (seg_idx, word_idx, 漂移中点, 字符数)
+        for si, seg in enumerate(segments):
+            for wi, w in enumerate(seg.words or []):
+                word_locs.append((si, wi, (w.start + w.end) / 2.0, max(1, len(w.word))))
+        word_locs.sort(key=lambda t: (t[2], t[0], t[1]))
+        n_words = len(word_locs)
+        if n_words == 0:
+            return
+        n_units = len(units)
+
+        # ---- 2) 全局 DP 分配：f(i, j) = 前 i 个词分给前 j 个单元的最小代价。
+        #         cost(k..i → 单元 j) = |单元宽×rate − 词字符数|
+        #                               + W_TIME × Σ 词漂移中点到单元的距离
+        #         语速全局自校准（语言/语速自适应）；漂移时间在压缩数据上是
+        #         误导，只作轻先验，预算 + 顺序约束才是主裁决。----
+        total_chars = sum(c for _, _, _, c in word_locs)
+        total_width = sum(e - s for s, e in units)
+        rate = total_chars / max(1e-6, total_width)
+        W_TIME = 0.05 * rate  # 秒 → 字符当量的折算系数
+
+        C = [0.0] * (n_words + 1)  # 字符前缀和（单调，支撑阈值分裂）
+        for i, (_, _, _, c) in enumerate(word_locs):
+            C[i + 1] = C[i] + c
+
+        INF = float("inf")
+        f_prev = [0.0] + [INF] * n_words  # j = 0
+        back = [None] * n_units
+        for j, (us, ue) in enumerate(units):
+            budget = (ue - us) * rate
+            # 词漂移中点到单元 j 的距离前缀和
+            D = [0.0] * (n_words + 1)
+            acc = 0.0
+            for i, (_, _, mid, _) in enumerate(word_locs):
+                if mid < us:
+                    acc += us - mid
+                elif mid > ue:
+                    acc += mid - ue
+                D[i + 1] = acc
+
+            f_cur = [INF] * (n_words + 1)
+            bk = [0] * (n_words + 1)
+            pre_min = INF      # k ∈ [0, pk) 的 min(f_prev[k] − C[k] − W_TIME·D[k])
+            pre_min_k = -1
+            dq_suf = deque()   # k ∈ [pk, i] 的单调队列，值 f_prev[k] + C[k] − W_TIME·D[k]
+            pk = 0
+            for i in range(n_words + 1):
+                v_suf = f_prev[i] + C[i] - W_TIME * D[i]
+                while dq_suf and dq_suf[-1][1] >= v_suf:
+                    dq_suf.pop()
+                dq_suf.append((i, v_suf))
+                thr = C[i] - budget
+                while pk <= i and C[pk] < thr:
+                    v_pre = f_prev[pk] - C[pk] - W_TIME * D[pk]
+                    if v_pre < pre_min:
+                        pre_min = v_pre
+                        pre_min_k = pk
+                    if dq_suf and dq_suf[0][0] == pk:
+                        dq_suf.popleft()
+                    pk += 1
+                best = INF
+                best_k = -1
+                if dq_suf:
+                    v = dq_suf[0][1] + (budget - C[i]) + W_TIME * D[i]
+                    if v < best:
+                        best, best_k = v, dq_suf[0][0]
+                if pre_min < INF:
+                    v = pre_min + (C[i] - budget) + W_TIME * D[i]
+                    if v < best:
+                        best, best_k = v, pre_min_k
+                f_cur[i] = best
+                bk[i] = best_k
+            f_prev = f_cur
+            back[j] = bk
+
+        # 回溯：单元 j 分得词 [k, i)
+        alloc: List[List[int]] = [[] for _ in range(n_units)]
+        i = n_words
+        for j in range(n_units - 1, -1, -1):
+            k = back[j][i]
+            alloc[j] = list(range(k, i))
+            i = k
+
+        # ---- 3) 分组重对齐。段被 DP 拆到多个单元时（均匀语速假设在局部
+        #         密度突变处的噪声，如句尾音拖进下一岛），把这些单元合并成
+        #         一组联合重对齐——合并窗口内 aligner 的顺序匹配能自己找到
+        #         正确落点。其余单元独立处理。----
+        def _find(parent, x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        uparent = list(range(n_units))
+        seg_units: Dict[int, List[int]] = {}
+        for j in range(n_units):
+            for t in alloc[j]:
+                si = word_locs[t][0]
+                seg_units.setdefault(si, []).append(j)
+        for js in seg_units.values():
+            js = sorted(set(js))
+            for j in js[1:]:
+                ra, rb = _find(uparent, js[0]), _find(uparent, j)
+                if ra != rb:
+                    uparent[max(ra, rb)] = min(ra, rb)
+
+        groups: Dict[int, Dict[str, Any]] = {}
+        for j in range(n_units):
+            root = _find(uparent, j)
+            g = groups.setdefault(root, {"units": [], "idxs": []})
+            g["units"].append(j)
+            g["idxs"].extend(alloc[j])
+        group_list = sorted(groups.values(), key=lambda g: g["units"][0])
+
+        def _timed_ok(aligned) -> bool:
+            n_timed = sum(1 for w in aligned if w["end"] - w["start"] > 0.01)
+            n = len(aligned)
+            if n <= 8:
+                return n_timed >= n - 1
+            return n_timed >= (2 * n) // 3
+
+        realigned = 0
+        interpolated = 0
+        skipped = 0
+
+        def _realign_group(g):
+            """组内词联合重对齐；验收失败则组首尾单元范围内插值。返回 (结果, 词表)"""
+            us = units[g["units"][0]][0]
+            ue = units[g["units"][-1]][1]
+            words = [segments[si].words[wi] for si, wi, _, _ in
+                     (word_locs[t] for t in g["idxs"])]
+            win = (max(0.0, us - 0.15), min(audio_dur, ue + 0.15))
+            text = " ".join(w.word for w in words)
+            aligned = alignment_service.refine_alignment(wav, sr, text, win, language)
+            if aligned is not None and len(aligned) == len(words) and _timed_ok(aligned):
+                for w, w_new in zip(words, aligned):
+                    w.start, w.end = w_new["start"], w_new["end"]
+                return "realigned", words
+            logger.debug(
+                f"Sync repair: units {g['units'][0]}-{g['units'][-1]} fallback to "
+                f"interpolation (aligned={0 if not aligned else len(aligned)}, "
+                f"expected={len(words)})"
+            )
+            span = ue - us
+            chars = [max(1, len(w.word)) for w in words]
+            total = sum(chars)
+            cursor = us
+            for w, c in zip(words, chars):
+                w.start = cursor
+                cursor += c / total * span
+                w.end = cursor
+            return "interpolated", words
+
+        for g in group_list:
+            if not g["idxs"]:
+                continue
+            us = units[g["units"][0]][0]
+            ue = units[g["units"][-1]][1]
+            words = [segments[si].words[wi] for si, wi, _, _ in
+                     (word_locs[t] for t in g["idxs"])]
+            # 健康组跳过：词本就在组范围内、无零时长/超长词、语音占比正常
+            healthy = all(
+                us - 0.05 <= w.start and w.end <= ue + 0.05
+                and 0.04 <= (w.end - w.start) <= max_word_dur
+                for w in words
+            )
+            if healthy and speech_ratio(envelope, frame_dur, thr, us, ue) >= ratio_floor:
+                skipped += 1
+                continue
+            outcome, _ = _realign_group(g)
+            if outcome == "realigned":
+                realigned += 1
+            else:
+                interpolated += 1
+
+        # ---- 3b) 拆段 A/B 裁决：均匀语速预算在局部密度突变处会把一个段拆到
+        #         多个单元（off-by-one 错位的典型信号——段的头部词被拉去填
+        #         前一岛的预算坑，如 "You're just visually challenged." 的头
+        #         两个词被分进上一句的尾音岛）。对每个被拆的段做对照实验：
+        #         A=保持现状；B=把段的头部词移入最后一个单元、按新分配重建
+        #         分组并重对齐受影响组。用「段内词间隙 + 时长/字符离散度 +
+        #         单元语音未被词覆盖量」打分，B 明显更优才采纳
+        #         （压缩对齐 LIS 平滑会抹平间隙，离散度项兜底）。----
+        def _seg_score(si):
+            ws = segments[si].words or []
+            if len(ws) < 2:
+                return 0.0
+            gaps = [max(0.0, ws[k + 1].start - ws[k].end) for k in range(len(ws) - 1)]
+            dpc = [(w.end - w.start) / max(1, len(w.word)) for w in ws]
+            mean = sum(dpc) / len(dpc)
+            std = (sum((x - mean) ** 2 for x in dpc) / len(dpc)) ** 0.5
+            return max(gaps) + 3.0 * std
+
+        def _coverage_miss(js, words):
+            miss = 0.0
+            for j in js:
+                s, e = units[j]
+                cov = 0.0
+                for w in words:
+                    ov = min(w.end, e) - max(w.start, s)
+                    if ov > cov:
+                        cov = ov
+                miss += max(0.0, (e - s) - cov)
+            return miss
+
+        def _build_groups(alloc_map):
+            """由分配表重建 seg_units / 并查集 / 分组（B 方案试算用）"""
+            su = {}
+            for j in range(n_units):
+                for t in alloc_map[j]:
+                    su.setdefault(word_locs[t][0], []).append(j)
+            up = list(range(n_units))
+            for js in su.values():
+                js = sorted(set(js))
+                for j in js[1:]:
+                    ra, rb = _find(up, js[0]), _find(up, j)
+                    if ra != rb:
+                        up[max(ra, rb)] = min(ra, rb)
+            gs = {}
+            for j in range(n_units):
+                r = _find(up, j)
+                g = gs.setdefault(r, {"units": [], "idxs": []})
+                g["units"].append(j)
+                g["idxs"].extend(alloc_map[j])
+            return up, su, gs
+
+        def _plan_score(gs_map, up_map, roots):
+            """受影响区域得分 = 受影响段分之和 + 0.5 × 单元语音覆盖缺失"""
+            units_seen = []
+            words = []
+            segs_seen = set()
+            for r in roots:
+                g = gs_map[_find(up_map, r)]
+                units_seen.extend(g["units"])
+                for t in g["idxs"]:
+                    si2, wi2 = word_locs[t][0], word_locs[t][1]
+                    words.append(segments[si2].words[wi2])
+                    segs_seen.add(si2)
+            return sum(_seg_score(si2) for si2 in sorted(segs_seen)) \
+                + 0.5 * _coverage_miss(units_seen, words)
+
+        for si in sorted(seg_units):
+            js = sorted(set(seg_units[si]))
+            if len(js) < 2:
+                continue
+            last_unit = js[-1]
+            head_idxs = [t for j in js[:-1] for t in alloc[j] if word_locs[t][0] == si]
+            if not head_idxs:
+                continue
+
+            roots_a = sorted({_find(uparent, j) for j in js})
+            # 捕获受影响词的当前时间（A 方案结果，回退用）
+            touched_idxs = sorted({t for r in roots_a for t in groups[r]["idxs"]})
+            saved = [
+                (t, segments[word_locs[t][0]].words[word_locs[t][1]].start,
+                 segments[word_locs[t][0]].words[word_locs[t][1]].end)
+                for t in touched_idxs
+            ]
+            score_a = _plan_score(groups, uparent, roots_a)
+
+            # B：移动头词 → 重建分组 → 试算重对齐
+            alloc_b = [list(a) for a in alloc]
+            for j in js[:-1]:
+                alloc_b[j] = [t for t in alloc_b[j] if word_locs[t][0] != si]
+            alloc_b[last_unit] = sorted(alloc_b[last_unit] + head_idxs)
+            up_b, su_b, gs_b = _build_groups(alloc_b)
+            roots_b = sorted({_find(up_b, j) for j in js})
+            for r in roots_b:
+                g = gs_b[_find(up_b, r)]
+                if g["idxs"]:
+                    _realign_group(g)
+            score_b = _plan_score(gs_b, up_b, roots_b)
+
+            if score_b < score_a * 0.9 - 0.05:
+                # 采纳 B：提交分配与分组（时间已被试算写回）
+                alloc = alloc_b
+                uparent, seg_units, groups = up_b, su_b, gs_b
+                realigned += 1
+                logger.debug(f"Sync repair: segment {si} head words moved to unit {last_unit}")
+            else:
+                # 保持 A：恢复受影响词的时间
+                for t, os_, oe in saved:
+                    w = segments[word_locs[t][0]].words[word_locs[t][1]]
+                    w.start, w.end = os_, oe
+
+        # ---- 4) 段边界从词重建（段的词可跨单元）----
+        for seg in segments:
+            ws = seg.words or []
+            if ws:
+                seg.start = min(w.start for w in ws)
+                seg.end = max(w.end for w in ws)
+
+        # ---- 5) 起点静音吸附（全段遍历，只前移）：修正 aligner 残留的提前偏差 ----
+        snapped = 0
+        for i, seg in enumerate(segments):
+            words = seg.words or []
+            if not words or seg.end - seg.start <= 0.05:
+                continue
+            if not is_silence(envelope, frame_dur, thr, seg.start - 0.15, seg.start + 0.15):
+                continue
+            cand = snap_start_forward(islands, seg.start, max_snap=snap_window, lead_pad=0.10)
+            if cand is None:
+                continue
+            if i + 1 < len(segments) and cand >= segments[i + 1].start - 0.02:
+                continue
+            if cand >= seg.end - 0.05:
+                continue
+            seg.start = cand
+            words[0].start = cand
+            if words[0].end - cand < 0.02:
+                words[0].end = cand + 0.02
+            snapped += 1
+
+        # ---- 6) 单调性兜底（DP 输出本应单调，此为安全网）：起点倒挂时回退
+        #         修复方，仍倒挂则钳位；回退会使起点后移、可能与更早邻段
+        #         重新倒挂，故迭代至不动点 ----
+        def _restore(seg, old):
+            seg.start, seg.end = old[0], old[1]
+            for w, (ws, we) in zip(seg.words or [], old[2]):
+                w.start, w.end = ws, we
+
+        for _round in range(5):
+            violations = 0
+            for i in range(1, len(segments)):
+                a, b = segments[i - 1], segments[i]
+                if b.start >= a.start - 1e-6:
+                    continue
+                violations += 1
+                old_a, old_b = snapshot[i - 1], snapshot[i]
+                if abs(old_a[0] - a.start) > 1e-9:
+                    _restore(a, old_a)
+                    logger.warning(f"Sync repair: segment {i - 1} reverted (start regression)")
+                if b.start < a.start - 1e-6 and abs(old_b[0] - b.start) > 1e-9:
+                    _restore(b, old_b)
+                    logger.warning(f"Sync repair: segment {i} reverted (start regression)")
+                if b.start < a.start - 1e-6:
+                    b.start = a.start
+                    if b.words:
+                        b.words[0].start = a.start
+                        if b.words[0].end - a.start < 0.02:
+                            b.words[0].end = a.start + 0.02
+            if violations == 0:
+                break
+
+        # ---- 7) 全局兜底：相邻段重叠 >0.05s 时把前段 end 钳到后段 start ----
+        for a, b in zip(segments, segments[1:]):
+            if a.end - b.start > 0.05:
+                a.end = b.start
+                if a.words:
+                    last_w = a.words[-1]
+                    last_w.end = max(last_w.start + 0.01, min(last_w.end, b.start))
+
+        logger.info(
+            f"Sync repair: {n_units} units, {realigned} realigned, "
+            f"{interpolated} interpolated, {skipped} healthy-skipped, "
+            f"{snapped} snapped"
+        )
 
     def search_subtitles(
         self,

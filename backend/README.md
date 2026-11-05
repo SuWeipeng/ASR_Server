@@ -10,6 +10,8 @@ English Speaking Practice Server powered by Qwen3-ASR
 - 🎯 **Pronunciation Evaluation**: Compare user speech against target text
 - 📊 **Detailed Analysis**: Word-by-word comparison and scoring
 - 🔊 **Audio Processing**: FFmpeg integration for audio extraction
+- 🛠️ **Subtitle Sync Repair**: Word-timestamp drift/pinning repair via speech islands (see [README_sync_repair.md](README_sync_repair.md))
+- 💬 **Quote-aware Segmentation**: Punctuation-based subtitle splitting that keeps quote pairs intact
 
 ## Installation
 

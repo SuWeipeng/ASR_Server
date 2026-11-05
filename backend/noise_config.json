@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "lowcut": 450,
-  "highcut": 3200,
+  "highcut": 3100,
   "order": 6,
   "filter_type": "bandpass",
   "normalize_after_filter": true

@@ -69,6 +69,12 @@ class Settings:
     # Subtitle segmentation
     SUBTITLE_MAX_SEGMENT_DURATION = float(os.getenv("SUBTITLE_MAX_SEGMENT_DURATION", "10"))  # 秒，超长句二次切分阈值
 
+    # Subtitle sync repair（退化段时间戳修复，补偿 aligner 在长窗口上的漂移）
+    SUBTITLE_SYNC_REPAIR = os.getenv("SUBTITLE_SYNC_REPAIR", "true").lower() == "true"
+    SYNC_REPAIR_MAX_WORD_DUR = float(os.getenv("SYNC_REPAIR_MAX_WORD_DUR", "1.5"))  # 单词时长超过此值视为退化（秒）
+    SYNC_REPAIR_SPEECH_RATIO = float(os.getenv("SYNC_REPAIR_SPEECH_RATIO", "0.35"))  # 段区间语音帧占比低于此值视为退化
+    SYNC_REPAIR_SNAP_WINDOW = float(os.getenv("SYNC_REPAIR_SNAP_WINDOW", "0.7"))  # 起点静音吸附的最大前移距离（秒）
+
     @classmethod
     def get_torch_dtype(cls):
         """Get PyTorch dtype from string"""

@@ -61,5 +61,23 @@
     "file_size": 32554575,
     "duration": 1022.955102,
     "upload_time": "2026-11-02T01:04:42.709751"
+  },
+  "8b88f677-b8c0-4835-8814-da1fb906467a": {
+    "file_id": "8b88f677-b8c0-4835-8814-da1fb906467a",
+    "original_filename": "01_part1.mp4",
+    "file_path": "D:\\ASR_Server\\uploads\\8b88f677-b8c0-4835-8814-da1fb906467a.mp4",
+    "file_type": "video",
+    "file_size": 133682968,
+    "duration": 477.789921,
+    "upload_time": "2026-11-02T02:37:37.113575"
+  },
+  "a1914ec4-59f7-4311-b31d-d43c17eca98c": {
+    "file_id": "a1914ec4-59f7-4311-b31d-d43c17eca98c",
+    "original_filename": "02_part2.mp4",
+    "file_path": "D:\\ASR_Server\\uploads\\a1914ec4-59f7-4311-b31d-d43c17eca98c.mp4",
+    "file_type": "video",
+    "file_size": 130405428,
+    "duration": 473.410549,
+    "upload_time": "2026-11-02T02:40:05.840081"
   }
 }

@@ -48,14 +48,11 @@ class AlignmentService:
                 logger.warning("Aligner not available")
                 return None
 
-            # Perform alignment
-            # Convert "auto" to None for Qwen3-ASR (it uses None for auto-detection)
-            model_language = None if language == "auto" else language
-
+            # Perform alignment (language normalization handled by the manager)
             words = aligner.align(
                 audio_path,
                 text,
-                language=model_language
+                language=language
             )
 
             processing_time = time.time() - start_time
@@ -69,6 +66,57 @@ class AlignmentService:
 
         except Exception as e:
             logger.error(f"Alignment failed: {e}")
+            return None
+
+    def refine_alignment(
+        self,
+        wav,
+        sr: int,
+        text: str,
+        window,
+        language: str = "auto"
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        在全量音频的指定时间窗口内重对齐文本（紧窗口对齐更稳定）
+
+        Args:
+            wav: 全量波形 np.ndarray（mono）
+            sr: 采样率
+            text: 窗口内语音对应的文本
+            window: (win_start, win_end) 秒，相对全量音频
+            language: Language code
+
+        Returns:
+            词列表 [{"word", "start", "end"}]（全量音频时间坐标），失败返回 None
+        """
+        import numpy as np
+
+        try:
+            aligner = self.aligner_manager
+            if aligner is None or aligner.aligner is None:
+                logger.warning("Aligner not available for refinement")
+                return None
+
+            win_start, win_end = window
+            i0 = max(0, int(win_start * sr))
+            i1 = min(len(wav), max(i0 + 1, int(win_end * sr)))
+            if i1 - i0 < sr * 0.05:  # 窗口短于 50ms，无法对齐
+                return None
+
+            seg_wav = np.asarray(wav[i0:i1], dtype=np.float32)
+
+            words = aligner.align_waveform((seg_wav, sr), text, language)
+            if not words:
+                return None
+
+            offset = i0 / sr
+            return [
+                {"word": w["word"], "start": w["start"] + offset, "end": w["end"] + offset}
+                for w in words
+            ]
+
+        except Exception as e:
+            logger.warning(f"Refine alignment failed: {e}")
             return None
 
     def check_aligner_ready(self) -> bool:

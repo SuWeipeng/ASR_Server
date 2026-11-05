@@ -6,7 +6,18 @@ Qwen3-ASR 输出带完整标点的 full_text，而 ForcedAligner 返回的词级
 
 本模块把 full_text 中的标点按顺序挂回对齐 token，然后按句末标点切分字幕段，
 完全无视 VAD 段边界 —— 跨 VAD 块的半句话会自然合并为同一段字幕。
-超长句在子句标点（逗号等）或最大词间隙处递归二次切分。
+
+切分是引号深度感知的：
+- 句末标点出现在深度 0（引号外）→ 正常硬切；
+- 句末标点在引号内但同一标点串里随后闭合（如 `?"`）→ 硬切且引号对完整收尾，
+  不再把闭引号当成开引号移到下一段（直引号 `"`/`'` 开闭同形，按当前深度二义判定）；
+- 引语内的句末标点（引号未闭合）→ 不切，仅记 soft 候选，供超长引语二次切分
+  （超长引语允许拆开引号对）；
+- 段末深度 0 处的开引号/开括号仍移到下一段开头（保留 `He said. "Go...` 的正确行为）；
+- 引号持续张开超 300 字符或 30s 视为 ASR 丢闭引号，强制归零深度告警，
+  后续句子恢复正常切分。
+
+超长句在引语内句边界（soft）、子句标点（逗号等）或最大词间隙处递归二次切分。
 
 若 full_text 与 timestamps 无法顺序对齐（desync），返回 None，
 由调用方回退到原有的 VAD 分组 / 固定时长分组逻辑。
@@ -14,14 +25,24 @@ Qwen3-ASR 输出带完整标点的 full_text，而 ForcedAligner 返回的词级
 渲染文本直接从 full_text 切片得到，保证与 ASR 原文格式（混排空格、
 引号方向等）完全一致。
 """
+import logging
 from typing import Dict, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
 
 # 句末标点：在此处切分字幕段
 _TERMINAL_PUNCT = set("。！？!?；;….")
 # 子句标点：仅用于切分超长句
 _CLAUSE_PUNCT = set("，,、：:")
-# 前引号/前括号：跨段边界时移到下一段开头
-_OPENING_PUNCT = set("《〈（(【〔『「“‘\"'")
+# 前引号/开括号：明确的开符号
+_QUOTE_OPENERS = set("《〈（(【〔『「“‘")
+# 后引号/闭括号：明确的闭符号，永不移动
+_QUOTE_CLOSERS = set("》〉）)】〕』」”’")
+# 直引号开闭同形，按当前深度二义判定：深度 0 视为开，否则视为闭
+_QUOTE_AMBIGUOUS = set("\"'")
+# 引号持续张开超此字符数/时长 → 强制归零深度（ASR 偶发丢闭引号的保护）
+_QUOTE_GUARD_CHARS = 300
+_QUOTE_GUARD_SECONDS = 30.0
 
 # CJK 码点区间（用于识别中文之间的多余空白）：
 # 0x4E00-0x9FFF  CJK 统一表意文字
@@ -167,25 +188,28 @@ def _has_clause(punct: str) -> bool:
 
 
 def _split_long_group(group: List[Dict], max_duration_s: float) -> List[List[Dict]]:
-    """递归切分超长句：优先在靠近中点的子句标点处，否则在最大词间隙处"""
+    """递归切分超长句：优先引语内句边界（soft），其次子句标点，否则最大词间隙"""
     duration = group[-1]["end"] - group[0]["start"]
     if duration <= max_duration_s or len(group) < 2:
         return [group]
 
-    # 候选切点：子句标点处，取使两段最均衡的一个
-    candidates = [i for i in range(len(group) - 1) if _has_clause(group[i]["punct"])]
-    if candidates:
-        start_t = group[0]["start"]
-        best = min(
-            candidates,
-            key=lambda i: abs((group[i]["end"] - start_t) - duration / 2)
-        )
-        left = group[:best + 1]
-        right = group[best + 1:]
-        if (left[-1]["end"] - left[0]["start"]) >= 0.5 and \
-           (right[-1]["end"] - right[0]["start"]) >= 0.5:
-            return _split_long_group(left, max_duration_s) + \
-                   _split_long_group(right, max_duration_s)
+    # 候选切点：① 引语内句边界（拆开引号对）② 子句标点，取使两段最均衡的一个
+    for candidates in (
+        [i for i in range(len(group) - 1) if group[i].get("soft")],
+        [i for i in range(len(group) - 1) if _has_clause(group[i]["punct"])],
+    ):
+        if candidates:
+            start_t = group[0]["start"]
+            best = min(
+                candidates,
+                key=lambda i: abs((group[i]["end"] - start_t) - duration / 2)
+            )
+            left = group[:best + 1]
+            right = group[best + 1:]
+            if (left[-1]["end"] - left[0]["start"]) >= 0.5 and \
+               (right[-1]["end"] - right[0]["start"]) >= 0.5:
+                return _split_long_group(left, max_duration_s) + \
+                       _split_long_group(right, max_duration_s)
 
     # 兜底：在靠近中点的最大词间隙处切开
     mid = (len(group) - 1) / 2
@@ -201,20 +225,116 @@ def _split_long_group(group: List[Dict], max_duration_s: float) -> List[List[Dic
            _split_long_group(right, max_duration_s)
 
 
+def _scan_quote_depth(items: List[Dict]) -> None:
+    """
+    单遍引号深度游走：为每个 token 就地记录
+
+    - split: 句末标点处硬切（深度 0 的正常句尾，或引语内句末标点后
+      紧跟闭引号、引号对完整收尾）
+    - soft: 引语内的句末标点（引号未闭合），作为超长引语的拆分候选
+    - move_out: 段末应移到下一段的开引号串（扫描时深度 0 的开引号后缀）
+
+    直引号 `"`/`'` 开闭同形，按当前深度二义判定。引号持续张开超
+    300 字符或 30s 强制归零深度并告警（ASR 偶发丢闭引号时，
+    后续句子仍能正常切分）。
+    """
+    depth = 0
+    open_pos = None   # 引号张开处的 full_text 索引
+    open_time = None  # 引号张开处的音频时间
+
+    for item in items:
+        punct = item["punct"]
+        # 逐字符记录 (类别, 该字符之前的深度)
+        chars = []  # (kind, depth_before)
+        d = depth
+        for ch in punct:
+            if ch in _QUOTE_OPENERS:
+                chars.append(("open", d))
+                d += 1
+            elif ch in _QUOTE_CLOSERS:
+                chars.append(("close", d))
+                d = max(0, d - 1)
+            elif ch in _QUOTE_AMBIGUOUS:
+                if d == 0:
+                    chars.append(("open", 0))
+                    d = 1
+                else:
+                    chars.append(("close", d))
+                    d -= 1
+            else:
+                chars.append(("term" if ch in _TERMINAL_PUNCT else "other", d))
+        depth_after = d
+
+        split = False
+        soft = False
+        for i, (kind, d_before) in enumerate(chars):
+            if kind != "term" or split:
+                continue
+            if d_before == 0:
+                split = True  # 正常句尾；run 内更后面的开引号留给移动步
+            else:
+                # 引语内句末标点：随后有同层闭引号（如 ?"）→ 整段成对收尾
+                closed = any(
+                    k == "close" and db <= d_before for k, db in chars[i + 1:]
+                )
+                if closed:
+                    split = True
+                else:
+                    soft = True
+
+        # 段末可移动的开引号：从末尾起连续的、扫描时深度为 0 的开引号
+        move_out = ""
+        for i in range(len(chars) - 1, -1, -1):
+            kind, d_before = chars[i]
+            if kind == "open" and d_before == 0:
+                move_out = punct[i] + move_out
+            else:
+                break
+
+        item["split"] = split
+        item["soft"] = soft
+        item["move_out"] = move_out
+
+        # 未闭合保护：超 300 字符或 30s 强制归零深度
+        if depth_after > 0:
+            if open_pos is None:
+                open_pos = item["word_start"]
+                open_time = item["start"]
+            opened_chars = item["word_start"] - open_pos
+            opened_time = item["start"] - open_time
+            if opened_chars > _QUOTE_GUARD_CHARS or opened_time > _QUOTE_GUARD_SECONDS:
+                _logger.warning(
+                    "Unclosed quote exceeded %d chars / %.0fs, forcing depth reset",
+                    _QUOTE_GUARD_CHARS, _QUOTE_GUARD_SECONDS,
+                )
+                depth = 0
+                open_pos = None
+                open_time = None
+                continue
+            depth = depth_after
+        else:
+            depth = 0
+            open_pos = None
+            open_time = None
+
+
 def group_by_punctuation(
     items: List[Dict],
     max_duration_s: float = 10.0
 ) -> List[List[Dict]]:
     """
     按句末标点把 token 分组成字幕段，超长句递归二次切分；
-    并把句末前引号/前括号移到下一段开头
+    段末深度 0 处的开引号/开括号移到下一段开头（闭引号永不移动，
+    引语内句末标点后紧跟闭引号时整段成对收尾、不拆开）
     """
-    # 1) 句末标点切段
+    _scan_quote_depth(items)
+
+    # 1) 硬切分点切段
     groups: List[List[Dict]] = []
     current: List[Dict] = []
     for idx, item in enumerate(items):
         current.append(item)
-        if _has_terminal(item["punct"]) or idx == len(items) - 1:
+        if item.get("split") or idx == len(items) - 1:
             groups.append(current)
             current = []
 
@@ -223,14 +343,12 @@ def group_by_punctuation(
     for group in groups:
         result.extend(_split_long_group(group, max_duration_s))
 
-    # 3) 段末前引号/前括号移到下一段（调整切片索引）
+    # 3) 段末深度 0 处的开引号移到下一段（调整切片索引）
     for a, b in zip(result, result[1:]):
         last = a[-1]
-        moved = ""
-        while last["punct"] and last["punct"][-1] in _OPENING_PUNCT:
-            moved = last["punct"][-1] + moved
-            last["punct"] = last["punct"][:-1]
+        moved = last.get("move_out", "")
         if moved:
+            last["punct"] = last["punct"][: len(last["punct"]) - len(moved)]
             # 前引号在正文中紧邻标点串末尾，切片索引回退相应字符数
             last["punct_end"] -= len(moved)
             b[0]["lead_start"] = last["punct_end"]

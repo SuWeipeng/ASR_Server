@@ -8,6 +8,18 @@ from app.config import settings
 from app.utils.logger import logger
 
 
+def normalize_align_language(language: Optional[str]) -> str:
+    """
+    规整 aligner 的语言参数
+
+    Qwen3ForcedAligner 的 encode_timestamp 对 language 直接调 .lower()，
+    None 会崩溃；"auto"/空串落入库的通用分词分支（中英混排均可用）。
+    """
+    if language is None or language == "" or language == "auto":
+        return "auto"
+    return language
+
+
 class AlignerModelManager:
     """
     Singleton forced aligner model manager
@@ -89,27 +101,13 @@ class AlignerModelManager:
 
             logger.info(f"Aligning text to audio: {audio_path}")
 
-            # Convert "auto" to None for Qwen3-ASR (it uses None for auto-detection)
-            model_language = None if language == "auto" else language
-
-            # Perform alignment
-            result = aligner.align(
+            results = aligner.align(
                 audio_path,
                 text,
-                language=model_language
+                language=normalize_align_language(language)
             )
 
-            # Format result
-            words = []
-            if result and "segments" in result:
-                for segment in result["segments"]:
-                    for word_info in segment.get("words", []):
-                        words.append({
-                            "word": word_info.get("word", ""),
-                            "start": word_info.get("start", 0.0),
-                            "end": word_info.get("end", 0.0),
-                            "score": word_info.get("score", 1.0)
-                        })
+            words = self._parse_align_results(results)
 
             logger.info(f"Alignment complete: {len(words)} words")
             return words
@@ -117,6 +115,61 @@ class AlignerModelManager:
         except Exception as e:
             logger.error(f"Alignment failed: {e}")
             return None
+
+    def align_waveform(
+        self,
+        waveform: Any,
+        text: str,
+        language: str = "auto"
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Align text to an in-memory waveform, avoiding temporary files
+
+        Args:
+            waveform: (np.ndarray, sample_rate) tuple
+            text: Transcript text to align
+            language: Language code
+
+        Returns:
+            List of word dictionaries with timestamps, or None if failed
+        """
+        try:
+            aligner = self.aligner
+            if aligner is None:
+                logger.warning("Aligner not available")
+                return None
+
+            results = aligner.align(
+                waveform,
+                text,
+                language=normalize_align_language(language)
+            )
+
+            return self._parse_align_results(results)
+
+        except Exception as e:
+            logger.error(f"Waveform alignment failed: {e}")
+            return None
+
+    @staticmethod
+    def _parse_align_results(results: Any) -> List[Dict[str, Any]]:
+        """
+        Parse aligner output into word dictionaries
+
+        aligner.align() returns List[ForcedAlignResult]; each result is
+        iterable over items with .text / .start_time / .end_time
+        """
+        words: List[Dict[str, Any]] = []
+        if not results:
+            return words
+        for item in results[0]:
+            words.append({
+                "word": item.text,
+                "start": float(item.start_time),
+                "end": float(item.end_time),
+                "score": 1.0,
+            })
+        return words
 
     def is_aligner_loaded(self) -> bool:
         """Check if aligner is loaded"""
