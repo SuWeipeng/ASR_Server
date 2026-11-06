@@ -10,6 +10,8 @@ const MSG_TYPES = {
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
   PLAY_PAUSE: 'PLAY_PAUSE',
   USE_VOCALS: 'USE_VOCALS',
+  SUBTITLES: 'SUBTITLES',
+  FILE_CHANGED: 'FILE_CHANGED',
   RECORDING_START: 'RECORDING_START',
   RECORDING_STOP: 'RECORDING_STOP',
 };
@@ -54,6 +56,39 @@ function PlayerWindowApp() {
         case MSG_TYPES.USE_VOCALS:
           // 主窗口更新了"播放时使用人声音轨"，合并进 initialState
           setInitialState(prev => (prev ? { ...prev, useVocals: !!payload?.useVocals } : prev));
+          break;
+
+        case MSG_TYPES.SUBTITLES:
+          // 主窗口加载新缓存/重新生成了字幕（同一文件内），合并进 initialState
+          setInitialState(prev => (prev ? {
+            ...prev,
+            subtitle: {
+              ...prev.subtitle,
+              subtitles: payload?.subtitles || [],
+              transcriptionMetadata: payload?.transcriptionMetadata ?? prev.subtitle?.transcriptionMetadata,
+            },
+          } : prev));
+          break;
+
+        case MSG_TYPES.FILE_CHANGED:
+          // 主窗口切换到了新文件：整体替换 initialState 里的 fileId 与字幕。
+          // 必须整体换 fileId，否则 VideoPlayerWindow 的同步 effect 判断
+          // `newFileId !== fileId` 不成立，弹窗会一直放着旧视频。
+          setInitialState(prev => (prev ? {
+            ...prev,
+            fileId: payload?.fileId ?? prev.fileId,
+            // 主窗口下发了最新播放状态：切换文件后接着播，而不是沿用
+            // 打开弹窗时的旧快照（那个快照的 isPlaying 早就过时了）。
+            player: payload?.isPlaying !== undefined
+              ? { ...prev.player, isPlaying: !!payload.isPlaying }
+              : prev.player,
+            subtitle: {
+              ...prev.subtitle,
+              subtitles: payload?.subtitles || [],
+              transcriptionMetadata: payload?.transcriptionMetadata ?? prev.subtitle?.transcriptionMetadata,
+              currentSubtitleIndex: -1,
+            },
+          } : prev));
           break;
 
         case MSG_TYPES.CLOSE:

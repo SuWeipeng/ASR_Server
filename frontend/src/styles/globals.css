@@ -79,6 +79,12 @@
     @apply h-full;
   }
 
+  /* #root 必须撑满，否则内部 h-full 的容器（弹窗播放器）会因为
+     父级高度为 auto 而塌陷成内容高度。 */
+  #root {
+    @apply h-full;
+  }
+
   /* Focus styles */
   *:focus-visible {
     @apply outline-2 outline-offset-2 outline-primary;

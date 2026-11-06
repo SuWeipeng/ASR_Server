@@ -15,16 +15,6 @@ export const VideoPlayer = forwardRef((props, ref) => {
   const progressBarRef = useRef(null);
   const isDraggingRef = useRef(false);
 
-  // Forward the video element directly to the parent ref
-  const setVideoRef = useCallback((el) => {
-    videoRef.current = el;
-    if (typeof ref === 'function') {
-      ref(el);
-    } else if (ref) {
-      ref.current = el;
-    }
-  }, [ref]);
-
   const fileId = useSelector((state) => state.media.fileId);
   const playbackUseVocals = useSelector((state) => state.ui.demucsConfig?.playback_use_vocals);
   const transcriptionMetadata = useSelector((state) => state.subtitle.transcriptionMetadata);
@@ -54,6 +44,46 @@ export const VideoPlayer = forwardRef((props, ref) => {
   useEffect(() => {
     setVocalsAvailable(true);
   }, [fileId]);
+
+  // 换文件时销毁上一个 video。
+  //
+  // 为什么必须显式停：<video> 带 key={fileId}，换文件时 React 会把旧元素
+  // 从 DOM 上摘掉，但【摘掉不等于停止播放】——脱离文档的 media 元素仍会
+  // 继续解码并输出音频，于是旧片段变成"看不见但一直响"的幽灵播放器，
+  // 还会占着解码器拖慢新视频加载。
+  //
+  // 用 callback ref 而不是 useEffect 清理来干这件事：
+  // useEffect 的清理在 StrictMode 下会在【同一个还挂着的元素】上执行一遍
+  // （开发模式故意双调用 effect 来暴露这类问题），把还在用的 video 的 src
+  // 抹掉 → 黑屏且永远不播。callback ref 只在元素真正被替换/卸载时才拿到旧元素。
+  const handleVideoRef = useCallback((el) => {
+    const prev = videoRef.current;
+    if (prev && prev !== el) {
+      // 旧元素被换掉：彻底停掉并释放解码器
+      prev.pause();
+      prev.removeAttribute('src');
+      prev.load();
+    }
+    // 转发给父组件
+    videoRef.current = el;
+    if (typeof ref === 'function') {
+      ref(el);
+    } else if (ref) {
+      ref.current = el;
+    }
+  }, [ref]);
+
+  // <audio> 是条件渲染的（useVocals），开/关人声或换文件都会让它挂载/卸载，
+  // 同样要把旧的停掉，避免留下"看不见但一直响"的幽灵音轨。
+  const handleAudioRef = useCallback((el) => {
+    const prev = audioRef.current;
+    if (prev && prev !== el) {
+      prev.pause();
+      prev.removeAttribute('src');
+      prev.load();
+    }
+    audioRef.current = el;
+  }, []);
 
   // Model status check for drag upload
   const systemStatus = useSelector((state) => state.ui.systemStatus);
@@ -459,9 +489,11 @@ export const VideoPlayer = forwardRef((props, ref) => {
 
       {/* Video element */}
       <div className="relative aspect-video bg-black group">
+        {/* key 必须与下面的 <audio> 区分开：video 和 audio 是兄弟节点，
+            用同一个 key 会让 React 的协调逻辑错乱，旧 video 不会被删除。 */}
         <video
-          key={fileId}
-          ref={setVideoRef}
+          key={`video-${fileId}`}
+          ref={handleVideoRef}
           src={mediaUrl}
           preload="auto"
           className="w-full h-full"
@@ -474,10 +506,11 @@ export const VideoPlayer = forwardRef((props, ref) => {
         {/* 人声音轨（video 静音，audio 跟随 video 时钟播放） */}
         {useVocals && (
           <audio
-            key={fileId}
-            ref={audioRef}
+            key={`audio-${fileId}`}
+            ref={handleAudioRef}
             src={mediaService.getVocalsUrl(fileId)}
             preload="auto"
+            className="hidden"
             onError={(e) => {
               console.warn('[VideoPlayer] Vocals audio unavailable, falling back to original audio:', e);
               setVocalsAvailable(false);

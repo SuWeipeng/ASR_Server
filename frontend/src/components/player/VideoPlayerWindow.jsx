@@ -67,20 +67,82 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
   useEffect(() => {
     if (initialState) {
       const newFileId = initialState.fileId ?? fileId;
-      setFileId(newFileId);
 
       // 只在 fileId 变化或第一次初始化时同步状态
       if (newFileId && newFileId !== fileId) {
-        setCurrentTime(initialState.player?.currentTime ?? 0);
+        setFileId(newFileId);
+        // video 元素带 key={fileId}，换文件时会被重建 → 重新等待元数据加载
+        setIsVideoReady(false);
+
+        // 换了文件：initialState.player 里是【旧文件】的播放位置/时长，
+        // 直接搬过来会让新文件跳到旧文件的时间点，必须重置。
+        setCurrentTime(0);
+        setDuration(0);
+        setProgress(0);
+        pendingSeekRef.current = null;
+        // 音量/静音是设备级偏好，跨文件保留
         setVolume(initialState.player?.volume ?? 1.0);
         setIsMuted(initialState.player?.isMuted ?? false);
-        // 恢复主窗口的播放状态与位置：从当前句继续，而不是跳回开头
+        // 播放状态跟着主窗口走：主窗口在播就接着播新文件，暂停就保持暂停。
+        // （不能用"新文件一律暂停"——那样连开几个片段后新视频就再也不播了）
         setIsPlaying(!!initialState.player?.isPlaying);
-        pendingSeekRef.current = initialState.player?.currentTime ?? 0;
-        setDuration(initialState.player?.duration ?? 0);
+        setSingleSentenceMode(false);
+        setSingleSentenceEnd(null);
+        setCurrentSubtitleIndex(-1);
+        // 字幕随后由 SUBTITLES / FILE_CHANGED 消息同步过来，这里先清空避免
+        // 新文件播放时还显示着旧文件的字幕
+        setSubtitles([]);
       }
     }
-  }, [initialState, fileId]);
+  }, [initialState?.fileId, fileId]);
+
+  // 同步主窗口下发的字幕内容（主窗口加载新缓存/重新生成字幕后）。
+  // initialState.subtitle.subtitles 只在收到 SUBTITLES 消息时变化，
+  // 用它作为依赖可避免 initialState 其他字段变动时误触发。
+  useEffect(() => {
+    const incoming = initialState?.subtitle?.subtitles;
+    if (!incoming) return;
+    setSubtitles(incoming);
+    // 字幕换了，旧索引可能越界——clamp 到有效范围
+    setCurrentSubtitleIndex((idx) =>
+      incoming.length === 0 ? -1 : Math.min(Math.max(idx, 0), incoming.length - 1)
+    );
+  }, [initialState?.subtitle?.subtitles]);
+
+  // 换文件时销毁上一个 video。
+  //
+  // 为什么必须显式停：<video> 带 key={fileId}，换文件时 React 会把旧元素
+  // 从 DOM 上摘掉，但【摘掉不等于停止播放】——脱离文档的 media 元素仍会
+  // 继续解码并输出音频，于是旧片段变成"看不见但一直响"的幽灵播放器，
+  // 还会占着解码器拖慢新视频加载。
+  //
+  // 用 callback ref 而不是 useEffect 清理来干这件事：
+  // useEffect 的清理在 StrictMode 下会在【同一个还挂着的元素】上执行一遍
+  // （开发模式故意双调用 effect 来暴露这类问题），把还在用的 video 的 src
+  // 抹掉 → 黑屏且永远不播。
+  // callback ref 只在元素真正被替换/卸载时拿到旧元素，语义正好。
+  const handleVideoRef = useCallback((el) => {
+    const prev = videoRef.current;
+    if (prev && prev !== el) {
+      // 旧元素被换掉：彻底停掉并释放解码器
+      prev.pause();
+      prev.removeAttribute('src');
+      prev.load();
+    }
+    videoRef.current = el;
+  }, []);
+
+  // <audio> 是条件渲染的（useVocalsActive），开/关人声或换文件都会让它
+  // 挂载/卸载，同样要把旧的停掉，避免留下"看不见但一直响"的幽灵音轨。
+  const handleAudioRef = useCallback((el) => {
+    const prev = audioRef.current;
+    if (prev && prev !== el) {
+      prev.pause();
+      prev.removeAttribute('src');
+      prev.load();
+    }
+    audioRef.current = el;
+  }, []);
 
   // Handle seek request from main window (subtitle click)
   useEffect(() => {
@@ -257,7 +319,7 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
     };
-  }, []);
+  }, [fileId]);
 
   // Notify state changes on important updates
   useEffect(() => {
@@ -484,12 +546,18 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
       </div>
 
       {/* Video element */}
-      <div className="flex-1 relative bg-black">
+      <div className="flex-1 relative bg-black min-h-0">
+        {/* video 用 absolute inset-0 铺满容器，且不占据文档流高度，
+            这样兄弟节点（人声音轨等）不会把它往下挤。
+            key 必须与下面的 <audio> 区分开：video 和 audio 是兄弟节点，
+            用同一个 key 会让 React 的协调逻辑错乱——旧 video 不会被删除，
+            于是每次换文件都在窗口里多叠一个黑屏视频。 */}
         <video
-          ref={videoRef}
+          key={`video-${fileId}`}
+          ref={handleVideoRef}
           src={mediaUrl}
           preload="auto"
-          className="w-full h-full object-contain"
+          className="absolute inset-0 w-full h-full object-contain"
           onClick={togglePlayback}
           onError={(e) => {
             console.error('[VideoPlayerWindow] Video error:', e);
@@ -499,10 +567,11 @@ export function VideoPlayerWindow({ initialState, seekRequest, onSeekHandled, pl
         {/* 人声音轨（video 静音，audio 跟随 video 时钟播放） */}
         {useVocalsActive && (
           <audio
-            key={fileId}
-            ref={audioRef}
+            key={`audio-${fileId}`}
+            ref={handleAudioRef}
             src={mediaService.getVocalsUrl(fileId)}
             preload="auto"
+            className="hidden"
             onError={(e) => {
               console.warn('[VideoPlayerWindow] Vocals audio unavailable, falling back to original audio:', e);
               setVocalsAvailable(false);

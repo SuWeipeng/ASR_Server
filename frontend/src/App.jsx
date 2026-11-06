@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Header } from './components/layout/Header';
 import { VideoPlayer } from './components/player/VideoPlayer';
@@ -25,6 +25,8 @@ const MSG_TYPES = {
   SEEK_TO_SUBTITLE: 'SEEK_TO_SUBTITLE',
   PLAY_PAUSE: 'PLAY_PAUSE',
   USE_VOCALS: 'USE_VOCALS',
+  SUBTITLES: 'SUBTITLES',
+  FILE_CHANGED: 'FILE_CHANGED',
   RECORDING_START: 'RECORDING_START',
   RECORDING_STOP: 'RECORDING_STOP',
 };
@@ -80,6 +82,69 @@ function App() {
       });
     }
   }, [playbackUseVocals, isDetached]);
+
+  // 分离期间主窗口切换/加载新文件后，同步到独立窗口。
+  //
+  // 为什么必须由这里发：负责推送 SYNC_STATE 的 usePlayerWindow 挂在 VideoPlayer 里，
+  // 分离后 VideoPlayer 已卸载（其 channel 也关闭了），fileId 根本传不过去，
+  // 弹窗会一直放着旧视频（"放回主窗口"才刷新就是因为主窗口重新渲染了播放器）。
+  //
+  // 关键：fileId 与 subtitles 必须一起发。Redux 里 state.media.fileId 在
+  // uploadFile.fulfilled 时就变了，而字幕要等缓存检查/ASR 完成才到位，
+  // 分开发会出现"字幕已换、视频还是旧的"的错位。
+  const subtitles = useSelector((state) => state.subtitle.subtitles);
+  const transcriptionMetadata = useSelector((state) => state.subtitle.transcriptionMetadata);
+  const playerIsPlaying = useSelector((state) => state.player.isPlaying);
+  // 用序列化后的内容做指纹，避免依赖数组引用（Redux 里 subtitles 是整体替换，
+  // 引用会变，但同一份内容重复渲染时也可能换引用）
+  const subtitlesKey = useMemo(
+    () => (subtitles.length ? JSON.stringify(subtitles) : ''),
+    [subtitles]
+  );
+  const lastSentFileRef = useRef(null);
+
+  // 分离状态变化时重置同步游标：
+  // 刚分离时弹窗通过 WINDOW_READY → SYNC_STATE 握手拿到完整快照，
+  // 不需要再发 FILE_CHANGED（否则会重复重置播放位置）。
+  useEffect(() => {
+    if (!isDetached) {
+      lastSentFileRef.current = null;
+    }
+  }, [isDetached]);
+
+  useEffect(() => {
+    if (!isDetached || !window.playerWindowChannel) return;
+
+    // fileId 变了（新文件已上传）→ 通知弹窗切换视频
+    if (fileId && fileId !== lastSentFileRef.current) {
+      lastSentFileRef.current = fileId;
+      window.playerWindowChannel.postMessage({
+        type: MSG_TYPES.FILE_CHANGED,
+        payload: {
+          fileId,
+          subtitles,
+          transcriptionMetadata,
+          // 带上当前播放状态：弹窗切到新文件后要接着播，
+          // 不能因为 initialState.player 是打开弹窗时的旧快照就变成暂停。
+          isPlaying: playerIsPlaying,
+        },
+      });
+    }
+  }, [fileId, subtitles, transcriptionMetadata, playerIsPlaying, isDetached]);
+
+  // 同一文件内字幕被重新生成（缓存加载/ASR 完成/修复），单独下发字幕内容
+  useEffect(() => {
+    if (!isDetached || !window.playerWindowChannel) return;
+    if (!fileId || fileId !== lastSentFileRef.current) return; // 文件变更那次已带上了
+
+    window.playerWindowChannel.postMessage({
+      type: MSG_TYPES.SUBTITLES,
+      payload: {
+        subtitles,
+        transcriptionMetadata,
+      },
+    });
+  }, [subtitlesKey, transcriptionMetadata, fileId, isDetached]);
 
   // Initialize system with polling for model loading
   useEffect(() => {
