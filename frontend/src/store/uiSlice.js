@@ -85,6 +85,78 @@ export const updateDemucsConfig = createAsyncThunk(
   }
 );
 
+export const resetVADConfig = createAsyncThunk(
+  'ui/resetVADConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.resetVADConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const resetNoiseConfig = createAsyncThunk(
+  'ui/resetNoiseConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.resetNoiseConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const resetDemucsConfig = createAsyncThunk(
+  'ui/resetDemucsConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.resetDemucsConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const getSyncRepairConfig = createAsyncThunk(
+  'ui/getSyncRepairConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.getSyncRepairConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const updateSyncRepairConfig = createAsyncThunk(
+  'ui/updateSyncRepairConfig',
+  async (config, { rejectWithValue }) => {
+    try {
+      const response = await systemService.updateSyncRepairConfig(config);
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const resetSyncRepairConfig = createAsyncThunk(
+  'ui/resetSyncRepairConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await systemService.resetSyncRepairConfig();
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 function getInitialMicDeviceId() {
   try {
     return localStorage.getItem('selectedMicDeviceId') || null;
@@ -134,6 +206,9 @@ const initialState = {
   demucsConfig: null,
   demucsConfigLoading: false,
   demucsConfigError: null,
+  syncRepairConfig: null,
+  syncRepairConfigLoading: false,
+  syncRepairConfigError: null,
 };
 
 const uiSlice = createSlice({
@@ -259,6 +334,47 @@ const uiSlice = createSlice({
       .addCase(updateDemucsConfig.rejected, (state, action) => {
         state.demucsConfigLoading = false;
         state.demucsConfigError = action.payload;
+      })
+      // Reset configs（响应即重置后的完整配置，直接刷新状态，
+      // 设置页表单经现有 useEffect 自动回填）
+      .addCase(resetVADConfig.fulfilled, (state, action) => {
+        state.vadConfig = action.payload;
+      })
+      .addCase(resetNoiseConfig.fulfilled, (state, action) => {
+        state.noiseConfig = action.payload;
+      })
+      .addCase(resetDemucsConfig.fulfilled, (state, action) => {
+        state.demucsConfig = action.payload;
+      })
+      // Get sync repair config
+      .addCase(getSyncRepairConfig.pending, (state) => {
+        state.syncRepairConfigLoading = true;
+        state.syncRepairConfigError = null;
+      })
+      .addCase(getSyncRepairConfig.fulfilled, (state, action) => {
+        state.syncRepairConfigLoading = false;
+        state.syncRepairConfig = action.payload;
+      })
+      .addCase(getSyncRepairConfig.rejected, (state, action) => {
+        state.syncRepairConfigLoading = false;
+        state.syncRepairConfigError = action.payload;
+      })
+      // Update sync repair config
+      .addCase(updateSyncRepairConfig.pending, (state) => {
+        state.syncRepairConfigLoading = true;
+        state.syncRepairConfigError = null;
+      })
+      .addCase(updateSyncRepairConfig.fulfilled, (state, action) => {
+        state.syncRepairConfigLoading = false;
+        state.syncRepairConfig = action.payload;
+      })
+      .addCase(updateSyncRepairConfig.rejected, (state, action) => {
+        state.syncRepairConfigLoading = false;
+        state.syncRepairConfigError = action.payload;
+      })
+      // Reset sync repair config
+      .addCase(resetSyncRepairConfig.fulfilled, (state, action) => {
+        state.syncRepairConfig = action.payload;
       });
   },
 });

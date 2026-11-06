@@ -107,4 +107,29 @@ export const systemService = {
   resetDemucsConfig: async () => {
     return await api.post('/demucs/config/reset');
   },
+
+  /**
+   * Get subtitle sync repair configuration
+   * @returns {Promise} Sync repair configuration
+   */
+  getSyncRepairConfig: async () => {
+    return await api.get('/sync-repair/config');
+  },
+
+  /**
+   * Update sync repair configuration (partial)
+   * @param {Object} config - Sync repair configuration updates
+   * @returns {Promise} Updated sync repair configuration
+   */
+  updateSyncRepairConfig: async (config) => {
+    return await api.put('/sync-repair/config', config);
+  },
+
+  /**
+   * Reset sync repair configuration to defaults
+   * @returns {Promise} Reset sync repair configuration
+   */
+  resetSyncRepairConfig: async () => {
+    return await api.post('/sync-repair/config/reset');
+  },
 };

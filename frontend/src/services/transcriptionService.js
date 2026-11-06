@@ -21,6 +21,18 @@ export const transcriptionService = {
   },
 
   /**
+   * 对已有缓存轻量重跑字幕同步修复（不重跑 demucs/ASR，分钟级）
+   * @param {string} fileId - File ID
+   * @returns {Promise} 修复后的完整字幕响应（与 generate 同构）
+   */
+  repairSubtitles: async (fileId) => {
+    return await api.post(`/transcription/repair/${fileId}`, {}, {
+      // 修复含批量 ASR 重探测，长视频可能跑数分钟
+      timeout: 30 * 60 * 1000,
+    });
+  },
+
+  /**
    * Get cached subtitles
    * @param {string} fileId - File ID
    * @returns {Promise} Subtitles response

@@ -279,6 +279,95 @@ async def export_subtitles(
     )
 
 
+# 进行中的缓存重修复（防同一文件并发重入）
+_active_repairs: set = set()
+
+
+@router.post("/repair/{file_id}", response_model=TranscriptionGenerateResponse)
+async def repair_subtitle_timing(file_id: str):
+    """
+    对已有缓存轻量重跑字幕同步修复（不重跑 demucs/ASR，GPU 约分钟级）
+
+    供设置页修改同步修复参数后即时生效；缓存时间戳被就地更新，
+    srt/vtt 一并重新生成。总开关关闭时幂等无害（不改任何文件）。
+    """
+    try:
+        media_file = media_service.get_file(file_id)
+        if not media_file:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        filename = Path(media_file.original_filename).stem
+        file_size = media_file.file_size
+
+        if not cache_service.is_cached(filename, file_size):
+            raise HTTPException(
+                status_code=404,
+                detail="No cache found for this file. Generate subtitles first."
+            )
+
+        if file_id in _active_repairs:
+            raise HTTPException(status_code=409, detail="Repair already in progress")
+        _active_repairs.add(file_id)
+
+        try:
+            # 修复含批量 ASR 重探测，长视频可能跑数分钟，offload 保持事件循环空闲
+            result = await asyncio.to_thread(
+                subtitle_service.repair_cached_timing,
+                file_id, filename, file_size,
+            )
+        finally:
+            _active_repairs.discard(file_id)
+
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to repair cached subtitles")
+
+        logger.info(f"Subtitle timing repaired: {len(result.segments)} segments")
+
+        # 回写内存缓存（否则本会话内 /export /search 仍返回旧时间戳）
+        _transcription_cache[file_id] = result
+
+        # Convert to response format
+        from app.models.schemas import SubtitleSegment as SubtitleSegmentSchema
+
+        segments_schema = [
+            SubtitleSegmentSchema(
+                id=seg.id,
+                start=seg.start,
+                end=seg.end,
+                text=seg.text,
+                words=[
+                    {
+                        "word": w.word,
+                        "start": w.start,
+                        "end": w.end,
+                        "confidence": w.confidence
+                    }
+                    for w in seg.words
+                ] if seg.words else None,
+                translation=seg.translation
+            )
+            for seg in result.segments
+        ]
+
+        return TranscriptionGenerateResponse(
+            success=True,
+            file_id=result.file_id,
+            language=result.language,
+            segments=segments_schema,
+            full_text=result.full_text,
+            duration=result.duration,
+            processing_time=result.processing_time,
+            message="Subtitle timing repaired from cache",
+            metadata=result.metadata
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Subtitle repair failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/vad/status")
 async def get_vad_status():
     """
@@ -287,15 +376,20 @@ async def get_vad_status():
     Returns information about VAD configuration and model status
     """
     try:
+        from app.core.vad_config import get_vad_config
+
         vad_manager = get_vad_model()
+        vad_cfg = get_vad_config().get_config()  # 动态配置（设置页可改），非静态 settings
 
         return {
             "vad_enabled": settings.VAD_ENABLED,
             "vad_model_loaded": vad_manager.is_model_loaded(),
             "threshold_duration": settings.VAD_THRESHOLD_DURATION,
-            "min_silence_duration_ms": settings.VAD_MIN_SILENCE_DURATION_MS,
-            "max_speech_duration_s": settings.VAD_MAX_SPEECH_DURATION_S,
-            "sample_rate": settings.VAD_SAMPLE_RATE,
+            "min_silence_duration_ms": vad_cfg.min_silence_duration_ms,
+            "max_speech_duration_s": vad_cfg.max_speech_duration_s,
+            "sample_rate": vad_cfg.sample_rate,
+            "speech_pad_ms": vad_cfg.speech_pad_ms,
+            "max_merge_gap_s": vad_cfg.max_merge_gap_s,
             "max_segments": settings.VAD_MAX_SEGMENTS,
             "model_available": vad_manager.is_enabled()
         }

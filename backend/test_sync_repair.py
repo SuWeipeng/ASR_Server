@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-离线验收退化段修复通道 _refine_segment_timing（词→岛全局 DP 分配机制）
+离线验收退化段修复通道 _refine_segment_timing（v3：逐段候选窗 ASR 重探测）
 
 用真实缓存验证：
 1. 02_part2_130405428（英文，demucs 人声输入）：
@@ -12,8 +12,14 @@
    - 无人认领语音岛应接近清零（旧机制下 24/170）
    - 幂等性：对已修复的缓存重跑，目标段时间漂移 ≤0.5s
 2. 1_33779614 —— language='auto' 路径回归
+3. 01_part1_133682968（Flipped，2026-11-06 错位复盘主缓存）：
+   18 个真值锚点（probe_sync_truth.py 探针 18/18 + 定点复验，真值见
+   SYNC_REPAIR_PROGRESS.md / cache/<name>/sync_truth.json）。缓存已是
+   v3 修复产物，重跑后锚点段必须仍在真值区间（幂等且不回退）。
+   注意 seg123 缓存文本与实际音频不符（"Oh, Bryce, let's speak with
+   him." vs 实际 "Can I speak with you?"），断言用锚点区间 [408.7,412.6]。
 
-注意：会加载 ForcedAligner 模型（CPU 上约 1~2 分钟）。
+注意：会加载 Qwen3-ASR 模型（GPU 数秒，CPU 约 1 分钟）。
 """
 import json
 import logging
@@ -27,10 +33,11 @@ from app.services.subtitle_service import SubtitleService
 
 CACHE_EN = r"D:\ASR_Server\cache\02_part2_130405428"
 CACHE_AUTO = r"D:\ASR_Server\cache\1_33779614"
+CACHE_P1 = r"D:\ASR_Server\cache\01_part1_133682968"
 
 _RE_STATS = re.compile(
-    r"Sync repair: (\d+) units, (\d+) realigned, (\d+) interpolated, "
-    r"(\d+) healthy-skipped, (\d+) snapped"
+    r"Sync repair: (\d+) segs \((\d+) healthy-frozen\), (\d+) probed in "
+    r"(\d+) windows, (\d+) re-anchored, (\d+) unmatched-kept, (\d+) snapped"
 )
 
 
@@ -60,7 +67,7 @@ def build_segments(cache_dir):
 
 
 def run_repair(svc, segs, audio_path, language="auto"):
-    """执行修复并从日志捕获 (单元数, 重对齐数, 插值数, 跳过数, 吸附数) 统计"""
+    """执行修复并从日志捕获 (段数, 健康冻结, 探测段, ASR窗, 重锚定, 未匹配, 吸附) 统计"""
     cap = _Capture()
     lg = logging.getLogger("ASR_Server")
     lg.addHandler(cap)
@@ -132,9 +139,10 @@ def main():
 
     stats = run_repair(svc, segs, CACHE_EN + r"\audio.mp3", "auto")
     if stats:
-        units, realigned, interp, skipped, snapped = stats
-        print(f"[统计] units={units}, realigned={realigned}, "
-              f"interpolated={interp}, healthy-skipped={skipped}, snapped={snapped}")
+        n_segs, healthy, probed, windows, realigned, kept, snapped = stats
+        print(f"[统计] segs={n_segs}, healthy-frozen={healthy}, "
+              f"probed={probed} in {windows} windows, re-anchored={realigned}, "
+              f"unmatched-kept={kept}, snapped={snapped}")
 
     check_invariants(segs, texts0, n0)
     print("[OK] 段数/文本不变，start 单调，无重叠")
@@ -214,12 +222,62 @@ def main():
     n2 = len(segs2)
     stats2 = run_repair(svc, segs2, CACHE_AUTO + r"\audio.mp3", "auto")
     if stats2:
-        print(f"[统计] units={stats2[0]}, realigned={stats2[1]}, "
-              f"interpolated={stats2[2]}, healthy-skipped={stats2[3]}, snapped={stats2[4]}")
+        print(f"[统计] segs={stats2[0]}, healthy-frozen={stats2[1]}, "
+              f"probed={stats2[2]} in {stats2[3]} windows, "
+              f"re-anchored={stats2[4]}, unmatched-kept={stats2[5]}, "
+              f"snapped={stats2[6]}")
     check_invariants(segs2, texts0_2, n2)
     zd2 = zero_dur_words(segs2)
     print(f"[统计] 全片零时长词: {len(zd2)} 个" + (f" {zd2[:5]}" if zd2 else ""))
     print("[OK] auto 语言路径验收通过")
+
+    # ================= 01_part1：2026-11-06 错位复盘真值夹具 =================
+    print("=" * 70)
+    print("01_part1_133682968（Flipped，用户报告错位簇 + 探针真值锚点）")
+    segs3 = build_segments(CACHE_P1)
+    texts0_3 = [s.text for s in segs3]
+    n3 = len(segs3)
+    # 真值：probe_sync_truth.py（18/18 窗）+ 定点复验；上界含探针窗边界修正
+    TRUTH_P1 = [
+        ("Bryce, isn't it time for you to go help your", 69.30, 71.96),
+        ("Huh?", 72.68, 72.90),
+        ("Oh yeah.", 75.05, 75.80),
+        ("I mean, nothing would stop her.", 76.80, 78.90),
+        ("I was about to tell her to get lost", 80.05, 82.70),
+        ("I couldn't believe it.", 88.35, 89.50),
+        ("Uh huh.", 100.00, 100.30),
+        ("Finally, I did the only manly thing", 100.70, 104.90),
+        ("Why don't you and I go help unload the", 27.70, 34.84),
+        ("For me, it was the beginning", 35.90, 41.90),
+        ("My only consolation", 241.30, 243.65),
+        ("I could see he didn't want to go", 271.85, 277.70),
+        ("Sherry Stalls was nothing", 326.05, 331.50),
+        ("I spent the whole year", 368.20, 373.30),
+        ("Seventh grade brought changes", 377.55, 381.00),
+        ("As a matter of fact", 401.15, 404.40),
+        ("Oh, Bryce, let's speak with him.", 408.70, 412.60),
+        ("You can see everything.", 454.62, 456.40),
+    ]
+    before3 = {}
+    for prefix, ts, te in TRUTH_P1:
+        s = next(x for x in segs3 if x.text.startswith(prefix))
+        before3[prefix] = (s.start, s.end)
+        ok = s.start >= ts - 0.6 and s.end <= te + 0.8
+        assert ok, (f"{prefix[:30]!r} 修复前 [{s.start:.2f},{s.end:.2f}] "
+                    f"已偏离真值 [{ts},{te}]（缓存应已是 v3 修复产物）")
+    print(f"[OK] 修复前 {len(TRUTH_P1)} 个真值锚点段全部在位（幂等起点）")
+
+    run_repair(svc, segs3, CACHE_P1 + r"\audio.mp3", "auto")
+    check_invariants(segs3, texts0_3, n3)
+    for prefix, ts, te in TRUTH_P1:
+        s = next(x for x in segs3 if x.text.startswith(prefix))
+        ok = s.start >= ts - 0.6 and s.end <= te + 0.8
+        assert ok, (f"{prefix[:30]!r} 重跑后 [{s.start:.2f},{s.end:.2f}] "
+                    f"偏离真值 [{ts},{te}]（重跑不得推翻已验证落位）")
+        b = before3[prefix]
+        drift = max(abs(s.start - b[0]), abs(s.end - b[1]))
+        assert drift <= 0.6, f"{prefix[:30]!r} 重跑漂移 {drift:.2f}s"
+    print("[OK] 重跑后 18 锚点段仍在真值区间，漂移 ≤0.6s")
 
     print("=" * 70)
     print("\n全部通过 ✔")

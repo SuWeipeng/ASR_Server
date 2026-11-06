@@ -79,5 +79,14 @@
     "file_size": 130405428,
     "duration": 473.410549,
     "upload_time": "2026-11-02T02:40:05.840081"
+  },
+  "ed3d023c-4bcc-4434-a409-bd5432baba7a": {
+    "file_id": "ed3d023c-4bcc-4434-a409-bd5432baba7a",
+    "original_filename": "03_part3.mp4",
+    "file_path": "D:\\ASR_Server\\uploads\\ed3d023c-4bcc-4434-a409-bd5432baba7a.mp4",
+    "file_type": "video",
+    "file_size": 109062185,
+    "duration": 479.458253,
+    "upload_time": "2026-11-06T23:02:14.993045"
   }
 }

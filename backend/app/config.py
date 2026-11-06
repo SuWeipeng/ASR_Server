@@ -70,10 +70,25 @@ class Settings:
     SUBTITLE_MAX_SEGMENT_DURATION = float(os.getenv("SUBTITLE_MAX_SEGMENT_DURATION", "10"))  # 秒，超长句二次切分阈值
 
     # Subtitle sync repair（退化段时间戳修复，补偿 aligner 在长窗口上的漂移）
+    # 注意：以下 SYNC_REPAIR_* 值现仅作 sync_repair_config.json 的首次种子
+    # （运行时配置走设置页 /api/sync-repair/config，改 env 需删 JSON 并重启才生效）
     SUBTITLE_SYNC_REPAIR = os.getenv("SUBTITLE_SYNC_REPAIR", "true").lower() == "true"
     SYNC_REPAIR_MAX_WORD_DUR = float(os.getenv("SYNC_REPAIR_MAX_WORD_DUR", "1.5"))  # 单词时长超过此值视为退化（秒）
     SYNC_REPAIR_SPEECH_RATIO = float(os.getenv("SYNC_REPAIR_SPEECH_RATIO", "0.35"))  # 段区间语音帧占比低于此值视为退化
     SYNC_REPAIR_SNAP_WINDOW = float(os.getenv("SYNC_REPAIR_SNAP_WINDOW", "0.7"))  # 起点静音吸附的最大前移距离（秒）
+    # 2026-11-06 重构：健康锚定 + 局部重探测（替换全局 DP 预算重排）。
+    # 语速上下限同时用于健康判定与候选窗可行性——判健康即冻结，保证重跑幂等。
+    SYNC_REPAIR_RATE_LO = float(os.getenv("SYNC_REPAIR_RATE_LO", "4"))   # chars/s 低于视为拖沓/铺静音
+    SYNC_REPAIR_RATE_HI = float(os.getenv("SYNC_REPAIR_RATE_HI", "34"))  # chars/s 高于视为挤扁/错位
+    SYNC_REPAIR_SEARCH_S = float(os.getenv("SYNC_REPAIR_SEARCH_S", "12"))   # 候选窗搜索半径（秒）
+    SYNC_REPAIR_MERGE_GAP = float(os.getenv("SYNC_REPAIR_MERGE_GAP", "1.2"))  # 候选窗内相邻单元最大桥接间隔（秒）
+    SYNC_REPAIR_MIN_ISLAND_W = float(os.getenv("SYNC_REPAIR_MIN_ISLAND_W", "0.12"))  # 参与候选/回收的最小单元宽（秒，短感叹词岛 ~0.15s 也要能成为候选）
+    # demucs 后带通（P2）：对人声做温和语音频段带通再喂 ASR/修复。探针 A/B
+    # （probe_sync_truth.py，01_part1 18 窗）显示电话频段(450-3100)会丢词、
+    # 语音频段(80-5500)与 raw 持平——默认关闭，仅特殊素材需要时打开。
+    SYNC_REPAIR_BANDPASS = os.getenv("SYNC_REPAIR_BANDPASS", "false").lower() == "true"
+    SYNC_REPAIR_BANDPASS_LO = float(os.getenv("SYNC_REPAIR_BANDPASS_LO", "80"))   # Hz
+    SYNC_REPAIR_BANDPASS_HI = float(os.getenv("SYNC_REPAIR_BANDPASS_HI", "5500"))  # Hz
 
     @classmethod
     def get_torch_dtype(cls):

@@ -258,3 +258,39 @@ class DemucsConfigUpdateRequest(BaseModel):
     model_name: Optional[str] = Field(None, min_length=1)
     repo_path: Optional[str] = None
     playback_use_vocals: Optional[bool] = None
+
+
+# ===== 字幕同步修复配置 Schemas =====
+# 机制与参数含义见 README_sync_repair.md；跨字段不变量
+# （rate_lo < rate_hi、bandpass_lo < bandpass_hi）由管理器校验
+
+class SyncRepairConfigResponse(BaseModel):
+    """字幕同步修复配置响应"""
+    enabled: bool
+    max_word_dur: float
+    speech_ratio: float
+    snap_window: float
+    rate_lo: float
+    rate_hi: float
+    search_s: float
+    merge_gap: float
+    min_island_w: float
+    bandpass: bool
+    bandpass_lo: float
+    bandpass_hi: float
+
+
+class SyncRepairConfigUpdateRequest(BaseModel):
+    """字幕同步修复配置更新请求（所有字段可选）"""
+    enabled: Optional[bool] = None
+    max_word_dur: Optional[float] = Field(None, ge=0.1, le=10)
+    speech_ratio: Optional[float] = Field(None, ge=0.0, le=1.0)
+    snap_window: Optional[float] = Field(None, ge=0.0, le=5.0)
+    rate_lo: Optional[float] = Field(None, ge=0.5, le=20)
+    rate_hi: Optional[float] = Field(None, ge=5, le=80)
+    search_s: Optional[float] = Field(None, ge=1, le=60)
+    merge_gap: Optional[float] = Field(None, ge=0.0, le=10)
+    min_island_w: Optional[float] = Field(None, ge=0.01, le=2)
+    bandpass: Optional[bool] = None
+    bandpass_lo: Optional[float] = Field(None, ge=20, le=2000)
+    bandpass_hi: Optional[float] = Field(None, ge=500, le=16000)

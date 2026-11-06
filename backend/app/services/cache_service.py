@@ -180,7 +180,7 @@ class CacheService:
 
             result = TranscriptionResult(
                 file_id=data["file_id"],
-                language=data["language"],
+                language=data.get("language") or "auto",
                 segments=segments,
                 full_text=data["full_text"],
                 duration=data["duration"],
@@ -200,7 +200,8 @@ class CacheService:
             return None
 
     def save_transcription(self, filename: str, file_size: int,
-                           result: TranscriptionResult, audio_path: str) -> bool:
+                           result: TranscriptionResult, audio_path: str,
+                           presnap: Optional[List[dict]] = None) -> bool:
         """
         Save transcription result to cache
 
@@ -209,6 +210,8 @@ class CacheService:
             file_size: File size in bytes
             result: TranscriptionResult to save
             audio_path: Path to audio file to copy
+            presnap: 同步修复前的段快照（_refine_segment_timing 返回值），
+                     落盘为 transcription.presnap.json 供事后诊断
 
         Returns:
             True if saved successfully
@@ -250,6 +253,15 @@ class CacheService:
 
             with open(transcription_file, 'w', encoding='utf-8') as f:
                 json.dump(transcription_data, f, ensure_ascii=False, indent=2)
+
+            # 同步修复前快照（区分"ASR 本来就错"还是"修复推翻了正确时间"）
+            if presnap:
+                try:
+                    with open(cache_dir / "transcription.presnap.json", 'w',
+                              encoding='utf-8') as f:
+                        json.dump({"segments": presnap}, f, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to save presnap: {e}")
 
             # Copy audio file (original)
             audio_cache = cache_dir / "audio.mp3"

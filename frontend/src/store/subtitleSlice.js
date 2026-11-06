@@ -29,6 +29,18 @@ export const getSubtitles = createAsyncThunk(
   }
 );
 
+export const repairSubtitles = createAsyncThunk(
+  'subtitle/repairSubtitles',
+  async ({ fileId }, { rejectWithValue }) => {
+    try {
+      const response = await transcriptionService.repairSubtitles(fileId);
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 export const searchSubtitles = createAsyncThunk(
   'subtitle/searchSubtitles',
   async ({ fileId, query }, { rejectWithValue }) => {
@@ -139,6 +151,24 @@ const subtitleSlice = createSlice({
         state.isLoading = false;
         state.error = action.payload || 'Failed to generate subtitles';
         console.error('[Subtitle] generateSubtitles rejected:', state.error);
+      })
+      // Repair subtitles（轻量重修复：只更新时间戳，不改 fromCache）
+      .addCase(repairSubtitles.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(repairSubtitles.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.subtitles = action.payload.segments;
+        state.filteredSubtitles = action.payload.segments;
+        state.currentSubtitleIndex = -1;
+        state.transcriptionMetadata = action.payload.metadata || null;
+        state.error = null;
+      })
+      .addCase(repairSubtitles.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload || 'Failed to repair subtitles';
+        console.error('[Subtitle] repairSubtitles rejected:', state.error);
       })
       // Get subtitles
       .addCase(getSubtitles.fulfilled, (state, action) => {

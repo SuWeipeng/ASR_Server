@@ -8,6 +8,7 @@
 - 📝 **AI字幕生成** - 使用 Qwen3-ASR 生成高质量字幕
 - 🎚️ **人声分离** - 集成 demucs，带背景音乐的视频先分离人声再识别，字幕更准确；播放时可切换人声/原声音轨，波形与单句下载跟随音源
 - ⏱️ **时间轴对齐** - 单词级时间戳，支持精确同步
+- 🔧 **字幕同步修复** - 自动校对字幕与语音的对齐（错位/挤扁/漂移），参数可在设置页运行时调整，修改后轻量重修复（不重新转写）
 - 🎯 **跟读练习** - 录音并评估发音准确度
 - 📊 **详细分析** - 单词级对比和评分反馈
 - ⌨️ **快捷键支持** - 高效的键盘操作
@@ -171,6 +172,77 @@ python -m py_compile app/main.py   # 快速语法检查单个文件
 | `Esc` | 关闭弹窗 |
 | `?` | 显示快捷键帮助 |
 
+## 处理流水线
+
+### 1. 字幕生成（上传后自动触发）
+
+```mermaid
+flowchart TD
+    A["上传文件<br/>（同名同大小直接命中缓存）"] --> B["FFmpeg 提取音频<br/>16kHz mono WAV"]
+    B --> C{"demucs 启用？"}
+    C -->|是| D["人声分离<br/>失败自动回退原声"]
+    C -->|否| E["原声"]
+    D --> F{"时长 > 60s？"}
+    E --> F
+    F -->|是| G["VAD 分段<br/>（分段前按『降噪』配置滤波，<br/>滤波后的音频即 ASR 输入）"]
+    F -->|否| H["整段直接转写"]
+    G --> I["Qwen3-ASR 逐段转写<br/>（词级时间戳）"]
+    H --> I
+    I --> J["标点语义断句<br/>（引号感知）"]
+    J --> K["字幕同步修复 v3<br/>（见下图）"]
+    K --> L["落盘缓存<br/>transcription.json + SRT/VTT + 修复前快照"]
+```
+
+**各环节的后果**（改了什么会影响什么）：
+
+| 环节 | 改动后果 |
+|------|----------|
+| demucs 开关/模型 | **改变 ASR 输入音频** → 转写文本会变，需全量重新生成；播放音轨跟随 |
+| VAD 参数 | 改变分段边界 → 影响断句粒度与转写文本，需全量重新生成 |
+| 降噪（滤波器类型/截止频率） | 长音频（>60s）滤波后的音频就是 ASR 输入 → 影响转写文本；短音频只影响降噪对比副本；需全量重新生成 |
+| 转写语言 | 改变识别语言 → 需全量重新生成 |
+| 同步修复参数 | **只改时间戳排列，不改文本** → 轻量重修复即可（见下图） |
+
+### 2. 字幕同步修复 v3（`_refine_segment_timing`，机制详见 `backend/README_sync_repair.md`）
+
+ASR 内置对齐器在长窗口上会把时间戳压缩/漂移（错位、挤扁、钉死在静音上）。修复通道用"紧窗重转写 + 内容验证"重新锚定：
+
+```mermaid
+flowchart TD
+    A["RMS 包络 → 语音岛检测"] --> B{"健康分类：词中点在岛内 ∧ 词时长正常<br/>∧ 语速合理 ∧ 语音占比达标"}
+    B -->|健康| C["冻结不动（幂等保证）"]
+    B -->|可疑| D["构建候选窗：自身区间 ±0.8s ∪ 无人认领岛组<br/>∪ 邻近可疑段自身窗 ∪ 相邻段桥接窗"]
+    D --> E["全局去重后批量 ASR 紧窗重转写"]
+    E --> F{"difflib 词块内容验证<br/>cov ≥ 0.5 ∧ 锚点间隙 ≤ 3s ∧ 跨度速率合理"}
+    F -->|达标| G["按探针词时间落位<br/>未匹配词在锚点间按字符比例插值"]
+    F -->|对不上| H["保留现状<br/>（缓存文本与实际语音不符，属转写错误）"]
+    C --> I["段边界从词重建 → 起点静音吸附<br/>→ 单调性钳位（不回退）→ 重叠钳位"]
+    G --> I
+    H --> I
+```
+
+**后果**：
+- 时间戳本来就对的字幕段（健康段）**绝不会被重排**——这是重跑幂等的基础
+- 修复只用缓存里已有的人声音频做局部重听，**不改字幕文本**，不重跑 demucs/ASR
+- 修复前的原始时间戳保存在 `transcription.presnap.json`，可事后区分"ASR 本来就错"还是"修复推翻了正确时间"
+- 误判时可调小"候选窗搜索半径"，或关闭总开关回滚到 ASR 原始时间戳
+
+### 3. 设置页修改后的生效路径
+
+设置页为选项卡结构（**麦克风 / 降噪 / 人声分离 / 字幕质量**），底部全局保存只提交有改动的配置，有未保存修改的选项卡标题带 ● 脏标记：
+
+```mermaid
+flowchart TD
+    A["设置页保存（diff 后只 PUT 有变化的配置）"] --> B{"改了 VAD / 降噪 / demucs 生成类参数？"}
+    B -->|是| C["自动全量重新生成<br/>demucs + ASR + 断句 + 修复<br/>（转写文本会变，长视频需几分钟）"]
+    B -->|否| D{"改了同步修复参数？<br/>（含总开关从关到开）"}
+    D -->|是| E["自动轻量重修复<br/>POST /api/transcription/repair<br/>（文本不变，只重排时间戳，GPU 约 1 分钟）"]
+    D -->|仅关总开关| F["只保存，不触发重修复<br/>（新生成将保留 ASR 原始时间戳）"]
+    B -->|仅播放偏好| G["点击即已生效，无需保存触发"]
+```
+
+> 手动批量重修复旧缓存：`python backend/repair_cache.py [cache_dir ...]`（无参数 = 全部缓存）。
+
 ## 人声分离 (demucs)
 
 对带背景音乐/噪音的视频，可在识别前用 [demucs](https://github.com/adefossez/demucs) 把人声分离出来，只对干净人声做 ASR，显著减少背景音乐造成的幻听和错字。
@@ -181,11 +253,11 @@ python -m py_compile app/main.py   # 快速语法检查单个文件
 - 模型可用：在设置中填写**本地模型仓库路径**（如 `D:\adefossez\HTDemucs`，离线加载）；留空则首次分离时自动联网从 HuggingFace 下载
 - 服务启动日志会输出 demucs 检测结果；`GET /api/system/status` 的 `demucs_available` 字段标识可用性
 
-### 两个独立设置（设置页 → 音视频设置 → 人声分离）
+### 两个独立设置（设置页 → 人声分离选项卡）
 
 | 设置 | 行为 |
 |------|------|
-| **生成字幕时启用人声分离** | 影响识别结果。修改后点"保存并刷新字幕"会**自动重新生成**当前视频的字幕 |
+| **生成字幕时启用人声分离** | 影响识别结果。修改后点"保存"会**自动重新生成**当前视频的字幕 |
 | **播放时使用人声音轨** | 纯播放偏好，**点击立即生效**，不触发字幕重新生成。仅对已用人声分离生成过字幕的视频生效（视频原声被静音，叠加播放人声轨） |
 
 未检测到 demucs 时两个开关显示但禁用，并提示安装方法。
@@ -259,7 +331,9 @@ python split_movie.py D:\Movies\某电影.mkv
 
 #### 字幕生成
 - `POST /api/transcription/generate` - 生成字幕（响应含 `metadata.used_demucs` 标记）
+- `POST /api/transcription/repair/{file_id}` - 轻量重跑同步修复（只重排时间戳，不重跑 demucs/ASR，分钟级）
 - `GET /api/transcription/subtitles/{file_id}` - 获取字幕
+- `GET /api/transcription/cache/check/{file_id}` - 检查缓存状态
 - `GET /api/transcription/cache/load/{file_id}` - 加载缓存字幕
 - `GET /api/transcription/export/{file_id}` - 导出字幕 (SRT/VTT)
 
@@ -275,6 +349,7 @@ python split_movie.py D:\Movies\某电影.mkv
 - `GET/PUT /api/vad/config` - VAD 参数（`POST /config/reset` 重置）
 - `GET/PUT /api/noise/config` - 音视频降噪参数
 - `GET/PUT /api/demucs/config` - 人声分离配置（含 `demucs_available`）
+- `GET/PUT /api/sync-repair/config` - 字幕同步修复参数（总开关 + 阈值）
 
 ## 配置
 
@@ -304,11 +379,14 @@ MAX_UPLOAD_SIZE=524288000    # 500MB
 
 以下配置在设置页修改后立即生效并写入 JSON 文件；**手动编辑文件需要重启后端**（启动时加载进内存）：
 
-| 文件 | 内容 |
-|------|------|
-| `backend/vad_config.json` | VAD 切分参数 |
-| `backend/noise_config.json` | 音视频降噪（Butterworth 滤波）参数 |
-| `backend/demucs_config.json` | 人声分离：`enabled` / `model_name` / `repo_path` / `playback_use_vocals` |
+| 文件 | 内容 | 对应设置页位置 |
+|------|------|----------------|
+| `backend/vad_config.json` | VAD 切分参数 | 字幕质量 → VAD 参数 |
+| `backend/noise_config.json` | 音视频降噪（Butterworth 滤波）参数 | 降噪 |
+| `backend/demucs_config.json` | 人声分离：`enabled` / `model_name` / `repo_path` / `playback_use_vocals` | 人声分离 |
+| `backend/sync_repair_config.json` | 字幕同步修复参数（env `SYNC_REPAIR_*` 仅作首次种子） | 字幕质量 → 字幕同步修复 |
+
+> 麦克风降噪是纯前端本地配置（localStorage），与上述服务端配置互不影响。
 
 ### 前端配置
 
@@ -328,13 +406,17 @@ MAX_UPLOAD_SIZE=524288000    # 500MB
 D:\ASR_Server/
 ├── backend/                 # 后端
 │   ├── app/
-│   │   ├── api/            # API 路由（media/transcription/practice/system/vad/noise/demucs）
-│   │   ├── services/       # 业务逻辑（字幕生成、媒体处理、缓存、VAD）
+│   │   ├── api/            # API 路由（media/transcription/practice/system/vad/noise/demucs/sync_repair）
+│   │   ├── services/       # 业务逻辑（字幕生成、同步修复、媒体处理、缓存、VAD）
 │   │   ├── models/         # 数据模型（domain + schemas）
-│   │   ├── utils/          # 工具函数（ffmpeg 封装、demucs 封装、音频处理）
+│   │   ├── utils/          # 工具函数（ffmpeg 封装、demucs 封装、音频处理、语音岛检测）
 │   │   └── core/           # 模型加载与动态配置管理（*_config.py）
+│   ├── repair_cache.py     # 对已有缓存批量重跑同步修复（CLI，见"处理流水线"）
+│   ├── probe_sync_truth.py # 字幕错位诊断探针（紧窗重转写真值夹具）
+│   ├── test_sync_repair.py / test_punct_segmentation.py   # 离线验收测试
+│   ├── README_sync_repair.md   # 同步修复机制详解（v1~v3 迭代与教训）
 │   ├── requirements.txt
-│   └── *_config.json       # 动态配置（运行时生成）
+│   └── *_config.json       # 动态配置（设置页修改，运行时持久化）
 ├── frontend/               # 前端
 │   ├── src/
 │   │   ├── components/     # React 组件（player/settings/subtitle/practice）
@@ -348,7 +430,7 @@ D:\ASR_Server/
 ├── split_movie.py         # 电影按句子边界切分工具（见"电影切分工具"章节）
 ├── uploads/                # 上传文件
 ├── temp/                   # 处理中间产物（提取音频/分离人声）
-├── cache/                  # 识别结果缓存
+├── cache/                  # 识别结果缓存（含 transcription.presnap.json 修复前快照）
 ├── start.bat              # Windows 启动脚本
 ├── start.sh               # Linux/Mac 启动脚本
 └── README.md              # 本文件
@@ -372,7 +454,7 @@ D:\ASR_Server/
 
 ### 打开了"播放时使用人声音轨"但还是原声
 - 该视频的字幕必须是**启用人声分离后生成**的（响应 metadata 里 `used_demucs: true`）
-- 旧视频需重新生成：启用"生成字幕时启用人声分离"后，在设置页改任意生成相关参数点"保存并刷新字幕"，即可强制重跑
+- 旧视频需重新生成：启用"生成字幕时启用人声分离"后，在设置页（人声分离选项卡）点"保存"，即可强制重跑
 - 前端页面刷新一次（F5）确保代码和状态最新
 
 ### CUDA 内存不足

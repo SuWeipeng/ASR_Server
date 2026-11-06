@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "max_word_dur": 1.5,
+  "speech_ratio": 0.35,
+  "snap_window": 0.7,
+  "rate_lo": 4.0,
+  "rate_hi": 34.0,
+  "search_s": 12.0,
+  "merge_gap": 1.2,
+  "min_island_w": 0.12,
+  "bandpass": false,
+  "bandpass_lo": 80.0,
+  "bandpass_hi": 5500.0
+}
